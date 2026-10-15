@@ -18,7 +18,7 @@
 ## Global Constraints
 
 - La app no gana dependencias: solo three.js r128 (ya está), sin módulos ES ni compilación. Cada archivo de `poblacion/` es un script clásico que define **un** global y termina con `if (typeof module !== "undefined") module.exports = <Global>;`.
-- Pruebas con Node 24 (`node --test pruebas/`); Python 3 + Pillow solo para `herramientas/generar_mundo.py`.
+- Pruebas con Node 24 (`node --test "pruebas/*.test.mjs"`); Python 3 + Pillow solo para `herramientas/generar_mundo.py`.
 - Todo texto visible en español; los números se formatean con `toLocaleString("es")`.
 - Años en calendario: negativo = antes de Cristo. "hace N años" = 2026 − año. Presente = 2026; inicio = −298000.
 - Modo Historia realista: ningún resultado se fuerza por fecha. La única condición de fecha es el Holoceno (−9674) para la agricultura, porque es clima real. Las probabilidades de innovar crecen con densidad, conexiones y saber, nunca con un tiempo de espera.
@@ -1175,7 +1175,7 @@ por:
 
 - [ ] **Step 4: Correr todas las pruebas del motor y ver que pasan**
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (mundo, datos, motor-mundo y motor-gente: 22 pruebas).
 
 - [ ] **Step 5: Commit**
@@ -1381,7 +1381,7 @@ por
 
 - [ ] **Step 4: Correr todas las pruebas y ver que pasan**
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (27 pruebas).
 
 - [ ] **Step 5: Commit**
@@ -1585,7 +1585,7 @@ if (typeof module !== "undefined") module.exports = Partida;
 
 - [ ] **Step 4: Correr todas las pruebas y ver que pasan**
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (34 pruebas).
 
 - [ ] **Step 5: Commit**
@@ -1699,7 +1699,7 @@ Reglas:
 Run: `node pruebas/calibrar.mjs`
 Expected: todas las filas con ✓ y código de salida 0.
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (34 pruebas; usan parámetros propios, así que no dependen de la calibración).
 
 - [ ] **Step 5: Commit con el resultado**
@@ -2384,7 +2384,7 @@ if (typeof module !== "undefined") module.exports = PanelTierra;
 
 - [ ] **Step 4: Correr las pruebas y ver que pasan**
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (38 pruebas).
 
 - [ ] **Step 5: HTML nuevo en `index.html`**
@@ -2770,7 +2770,7 @@ En `README.md`:
 El motor (`poblacion/motor.js`) no usa el navegador, así que se prueba con Node 24:
 
 ```bash
-node --test pruebas/
+node --test "pruebas/*.test.mjs"
 ```
 
 La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana):
@@ -2788,7 +2788,7 @@ python herramientas/generar_mundo.py
 
 - [ ] **Step 3: Verificación final**
 
-Run: `node --test pruebas/`
+Run: `node --test "pruebas/*.test.mjs"`
 Expected: PASS (38 pruebas).
 
 Run: `node pruebas/calibrar.mjs`
