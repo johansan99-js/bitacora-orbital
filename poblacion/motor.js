@@ -312,9 +312,11 @@ const Motor = (() => {
 
     // --- Innovaciones: aparecen según densidad, conexiones y saber (nunca por un tiempo fijo) y se contagian ---
     const probPor = (tasa, dt) => 1 - Math.exp(-tasa * dt);
+    // Las vecinas se leen como estaban al inicio del paso, así el orden de las celdas no influye
+    const innov0 = new Uint16Array(N), saber0 = new Float32Array(N);
     function vecinasCon(i, bit) {
       let n = 0;
-      for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && (innov[j] & bit)) n++; }
+      for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && (innov0[j] & bit)) n++; }
       return n;
     }
     function puedeAdoptar(bit, v, i, apta) {
@@ -324,23 +326,24 @@ const Motor = (() => {
       if (!apta || !(v & AGRICULTURA)) return false;
       return bit !== ESCRITURA || (v & CIUDADES) !== 0;
     }
-    // Saber: crece con la gente (más personas, más ideas; Kremer 1993) y se iguala con el de las vecinas agrícolas
+    // Saber: crece con la gente (más personas, más ideas; Kremer 1993) y no se pierde al compartirlo: las celdas agrícolas que saben menos se acercan a la media de sus vecinas
     function acumularSaber(i, v, dt) {
       const escribe = (v & ESCRITURA) !== 0;
       let s = saber[i] + dt * P.ritmoSaber * (pob[i] / 1e6) * (escribe ? P.escrituraSaber : 1);
       let suma = 0, n = 0;
       for (let k = 0; k < 8; k++) {
         const j = vecinas[i * 8 + k];
-        if (j >= 0 && pob[j] > 0 && (innov[j] & AGRICULTURA)) { suma += saber[j]; n++; }
+        if (j >= 0 && pob[j] > 0 && (innov0[j] & AGRICULTURA)) { suma += saber0[j]; n++; }
       }
-      if (n) s += (suma / n - s) * probPor(P.difusionSaber * (escribe ? P.contagioEscritura : 1), dt);
+      if (n && suma / n > s) s += (suma / n - s) * probPor(P.difusionSaber * (escribe ? P.contagioEscritura : 1), dt);
       saber[i] = s;
     }
     function innovar(dt) {
+      innov0.set(innov); saber0.set(saber);
       const fracInd = total > 0 ? totalIndustrial / total : 0;
       for (const i of tierra) {
         const p = pob[i];
-        if (p <= 0) continue;
+        if (p <= 0) { etapa[i] = VACIA; continue; }
         let v = innov[i];
         const apta = aptaAgricultura(i);
         if (v & AGRICULTURA) acumularSaber(i, v, dt);
@@ -368,10 +371,10 @@ const Motor = (() => {
         }
         // Contagio desde las vecinas (más rápido con escritura) y, para la industria, desde todo el mundo agrícola
         let union = 0;
-        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0) union |= innov[j]; }
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0) union |= innov0[j]; }
         const global = fracInd > 0 && apta && (v & AGRICULTURA) && !(v & INDUSTRIA);
         if ((union & ~v) || global) {
-          const mult = v & ESCRITURA ? P.contagioEscritura : 1;
+          const mult = (v | union) & ESCRITURA ? P.contagioEscritura : 1;   // la celda o alguna vecina escribe
           for (const bit of BITS) {
             if ((v & bit) || !puedeAdoptar(bit, v, i, apta)) continue;
             let tasa = union & bit ? P.contagio[bit] * vecinasCon(i, bit) * mult : 0;

@@ -65,6 +65,10 @@ test("la industria necesita escritura y saber acumulado", () => {
   const sinEscritura = Motor.crear(tres(), h, { params: { ...base, escritura: 0 } });
   sinEscritura.avanzar(3000);
   assert.equal(tiene(sinEscritura, 0, INDUSTRIA), false);
+  const sinSaber = Motor.crear(tres(), h, { params: { ...base, escritura: 1, vecinosEscritura: 1, saberIndustria: 1e9 } });
+  sinSaber.avanzar(3000);
+  assert.equal(tiene(sinSaber, 0, ESCRITURA), true);
+  assert.equal(tiene(sinSaber, 0, INDUSTRIA), false);
   const con = Motor.crear(tres(), h, { params: { ...base, escritura: 1, vecinosEscritura: 1 } });
   const vistos = [];
   con.alHito(x => vistos.push(x.id));
@@ -72,4 +76,19 @@ test("la industria necesita escritura y saber acumulado", () => {
   assert.equal(tiene(con, 0, ESCRITURA), true);
   assert.equal(tiene(con, 0, INDUSTRIA), true);
   assert.ok(vistos.includes("escritura") && vistos.includes("industria"));
+});
+
+test("el contagio avanza una celda por paso en cualquier dirección", () => {
+  const tira = () => mundoDePrueba(["0000000", "0444440", "0000000"], { lonOeste: -7 });
+  const gente = [-4, -2, 0, 2, 4].map(lon => ({ nombre: `C${lon}`, lat: 0, lon, personas: 6000 }));
+  const params = { ...QUIETO, agricultura: 1, contagio: { ...QUIETO.contagio, 2: 100 } };
+  const contar = m => [-4, -2, 0, 2, 4].filter(lon => tiene(m, lon, AGRICULTURA)).length;
+  for (const lon of [-4, 4]) {
+    const h = historiaDePrueba({ inicio: -9600, origenes: gente, domesticables: [{ id: "x", nombre: "X", riqueza: 1, cajas: [[-1, 1, lon - 1, lon + 1]] }] });
+    const m = Motor.crear(tira(), h, { params });
+    m.avanzar(10);
+    assert.equal(contar(m), 1, `semilla de agricultura en ${lon}, primer paso`);
+    m.avanzar(10);
+    assert.equal(contar(m), 2, `semilla de agricultura en ${lon}, segundo paso`);
+  }
 });
