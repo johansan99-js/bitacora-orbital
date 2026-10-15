@@ -1,0 +1,238 @@
+// Motor de la simulación de población de "La Tierra": mundo, clima, gente, innovaciones e hitos.
+// No usa three.js ni el DOM, así que corre igual en el navegador y en Node (pruebas y calibración).
+const Motor = (() => {
+  // Biomas: los mismos códigos que MUNDO.bioma
+  const MAR = 0, HIELO = 1, TUNDRA = 2, DESIERTO = 3, ESTEPA = 4, BOSQUE = 5, SELVA = 6;
+  // Innovaciones (bits)
+  const COSTERA = 1, AGRICULTURA = 2, CIUDADES = 4, ESCRITURA = 8, ALTURA = 16, INDUSTRIA = 32;
+  const BITS = [COSTERA, AGRICULTURA, CIUDADES, ESCRITURA, ALTURA, INDUSTRIA];
+  // Etapas de una celda
+  const VACIA = 0, RECOLECTORES = 1, AGRICULTORES = 2, URBANA = 3, INDUSTRIAL = 4;
+  const D2R = Math.PI / 180, KM_GRADO = 111.32;
+
+  // Parámetros de las reglas. Los valores finales salen de la calibración (pruebas/calibrar.mjs).
+  const PARAMS = {
+    // Personas por km² según etapa (1–4) y bioma (0 mar, 1 hielo, 2 tundra, 3 desierto, 4 estepa, 5 bosque, 6 selva).
+    // Recolectores: densidades etnográficas (Binford 2001, "Constructing Frames of Reference").
+    densidad: [
+      null,
+      [0, 0, 0.02, 0.005, 0.08, 0.06, 0.1],
+      [0, 0, 0, 0.3, 6, 4, 3],
+      [0, 0, 0, 1, 18, 12, 9],
+      [0, 0, 1, 8, 150, 100, 80]
+    ],
+    costa: 1.5,              // extra de la pesca para recolectores en celdas costeras
+    frio: 0.5,               // pérdida máxima de capacidad en latitudes altas en plena glaciación
+    crecimiento: [0, 0.003, 0.01, 0.01, 0.025],   // tasa r por año según la etapa
+    minimo: 10,              // menos gente que esto en una celda = deshabitada; tampoco salen grupos más chicos
+    establecida: 100,        // gente necesaria para que una llegada cuente como hito
+    exploracion: 0.002,      // fracción que se va por año aunque haya espacio
+    presion: 0.004,          // fracción extra por año cuando la celda está llena
+    cruce: [0.00002, 0.0001, 0.0002],   // probabilidad por año de cruzar el mar desde una costa: sin navegación, costera, de altura
+    alcance: [1, 2, 20],     // celdas de agua que se pueden cruzar en cada caso
+    costera: 2e-7,           // aparición de la navegación costera, por año y por cada 1.000 personas en la costa
+    agricultura: 0.0002,     // aparición de la agricultura por año en una celda llena de una región con domesticables
+    llenaAgricultura: 0.7,   // fracción de la capacidad de recolectores desde la que empieza a aparecer
+    ciudades: 0.0005,        // aparición de ciudades por año con densidad al doble del umbral y todas las vecinas agrícolas
+    densidadCiudad: 8,       // personas por km² desde las que pueden aparecer ciudades
+    escritura: 0.0005,       // aparición de la escritura por año y por cada vecina con ciudades más allá del mínimo
+    vecinosEscritura: 2,     // vecinas con ciudades necesarias para que aparezca la escritura
+    altura: 0.00005,         // aparición de la navegación de altura por año con saber suficiente
+    saberAltura: 2000,       // saber con el que la navegación de altura llega a su probabilidad completa
+    industria: 0.0005,       // aparición de la industria por año con saber al doble del umbral
+    saberIndustria: 20000,   // saber desde el que puede aparecer la industria
+    ritmoSaber: 1,           // saber ganado por año por cada millón de personas agrícolas
+    escrituraSaber: 2,       // la escritura multiplica el saber ganado
+    difusionSaber: 0.002,    // ritmo con el que el saber se iguala con el de las vecinas
+    saberIntensifica: 5000,  // cada tantos puntos de saber, la capacidad agrícola y urbana sube un 100 %
+    saberMax: 3,             // tope de esa subida (capacidad ×4)
+    contagio: { 1: 0.002, 2: 0.004, 4: 0.002, 8: 0.003, 16: 0.002, 32: 0.02 },   // por año y por vecina, según el bit
+    contagioEscritura: 3,    // la escritura acelera el contagio y la difusión del saber
+    industriaGlobal: 0.05    // contagio mundial de la industria, multiplicado por la fracción de población industrial
+  };
+
+  function azar(semilla) {
+    let s = semilla >>> 0;
+    return () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const enCaja = (la, lo, [a, b, c, d]) => la >= a && la <= b && (c <= d ? lo >= c && lo <= d : lo >= c || lo <= d);
+  const enCajas = (la, lo, cajas) => cajas.some(k => enCaja(la, lo, k));
+  const entre = (año, tramos) => tramos.some(([a, b]) => año >= a && año <= b);
+  function interpolar(tabla, x) {
+    if (x <= tabla[0][0]) return tabla[0][1];
+    for (let k = 1; k < tabla.length; k++) if (x <= tabla[k][0]) {
+      const [x0, y0] = tabla[k - 1], [x1, y1] = tabla[k];
+      return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+    }
+    return tabla[tabla.length - 1][1];
+  }
+  // Valor de una tabla por tramos [[desde, valor], ...]: el del último tramo que ya empezó
+  function tramo(tabla, x) {
+    let v = tabla[0][1];
+    for (const [desde, val] of tabla) if (x >= desde) v = val;
+    return v;
+  }
+
+  function crear(mundo, historia, opciones = {}) {
+    const P = { ...PARAMS, ...opciones.params };
+    const semilla = (opciones.semilla ?? Math.floor(Math.random() * 2 ** 32)) >>> 0;
+    const rnd = azar(semilla);
+    const natalidad = opciones.natalidad ?? 1, glacial = opciones.intensidadGlacial ?? 1;
+    const conPuentes = opciones.puentesDeTierra ?? true, cruceMult = opciones.cruceDeMar ?? 1;
+    const W = mundo.ancho, H = mundo.alto, N = W * H, G = mundo.grados;
+    const latN = mundo.latNorte ?? 90, lonO = mundo.lonOeste ?? -180;
+
+    // --- Mundo: geometría, islas, vecinas, puentes y regiones ---
+    const lat = new Float32Array(N), lon = new Float32Array(N), bioma0 = new Uint8Array(N), area0 = new Float32Array(N);
+    const areaCompleta = i => (G * KM_GRADO) ** 2 * Math.cos(lat[i] * D2R);
+    for (let i = 0; i < N; i++) {
+      lat[i] = latN - (Math.floor(i / W) + 0.5) * G;
+      lon[i] = lonO + ((i % W) + 0.5) * G;
+      bioma0[i] = mundo.bioma.charCodeAt(i) - 48;
+      const t = mundo.tierra.charCodeAt(i) - 48;
+      area0[i] = bioma0[i] === MAR ? 0 : areaCompleta(i) * (t >= 9 ? 1 : t / 10);
+    }
+    function celdaDe(la, lo) {
+      const f = Math.min(H - 1, Math.max(0, Math.floor((latN - la) / G)));
+      const c = ((Math.floor((lo - lonO) / G) % W) + W) % W;
+      return f * W + c;
+    }
+    for (const isla of historia.islas) {
+      const i = celdaDe(isla.lat, isla.lon);
+      if (bioma0[i] === MAR) { bioma0[i] = isla.bioma; area0[i] = isla.km2; }
+    }
+    // 8 vecinas por celda (−1 fuera del mapa); la longitud da la vuelta al mundo
+    const vecinas = new Int32Array(N * 8).fill(-1);
+    for (let i = 0; i < N; i++) {
+      const f = Math.floor(i / W), c = i % W;
+      let k = 0;
+      for (let df = -1; df <= 1; df++) for (let dc = -1; dc <= 1; dc++) {
+        if (!df && !dc) continue;
+        if (f + df >= 0 && f + df < H) vecinas[i * 8 + k] = (f + df) * W + ((c + dc + W) % W);
+        k++;
+      }
+    }
+    const puente = new Int8Array(N).fill(-1);
+    historia.puentes.forEach((p, k) => {
+      for (let i = 0; i < N; i++) if (bioma0[i] === MAR && puente[i] < 0 && enCajas(lat[i], lon[i], p.cajas)) puente[i] = k;
+    });
+    // Celdas que pueden ser tierra en algún momento: las de hoy y las de los puentes
+    const tierra = [];
+    for (let i = 0; i < N; i++) if (bioma0[i] !== MAR || puente[i] >= 0) tierra.push(i);
+    const costa = new Uint8Array(N);
+    for (const i of tierra) if (bioma0[i] !== MAR) for (let k = 0; k < 8; k++) {
+      const j = vecinas[i * 8 + k];
+      if (j >= 0 && bioma0[j] === MAR) costa[i] = 1;
+    }
+    const costeras = tierra.filter(i => costa[i]);
+    const region = new Int8Array(N).fill(-1), domestica = new Int8Array(N).fill(-1);
+    const rio = new Uint8Array(N), humedo = new Uint8Array(N), gHielo = new Float32Array(N).fill(Infinity);
+    for (const i of tierra) {
+      const la = lat[i], lo = lon[i];
+      region[i] = historia.regiones.findIndex(r => enCajas(la, lo, r.cajas));
+      domestica[i] = historia.domesticables.findIndex(d => enCajas(la, lo, d.cajas));
+      rio[i] = historia.rios.some(r => enCajas(la, lo, r.cajas)) ? 1 : 0;
+      humedo[i] = enCajas(la, lo, historia.humedos.cajas) ? 1 : 0;
+      for (const h of historia.hielo) if (h.gMin < gHielo[i] && enCajas(la, lo, h.cajas)) gHielo[i] = h.gMin;
+    }
+
+    // --- Estado ---
+    const pob = new Float64Array(N), innov = new Uint16Array(N), etapa = new Uint8Array(N), saber = new Float32Array(N);
+    const hielo = new Uint8Array(N), plataforma = new Uint8Array(N), bio = new Uint8Array(N), base = new Float32Array(N);
+    let año = opciones.inicio ?? historia.inicio, total = 0, totalIndustrial = 0, fin = false;
+    let clima = { nivelMar: 0, intensidadGlacial: 0, humedoSahara: false, puentesAbiertos: [] };
+    const oyentes = [], logros = [], hechos = new Set();
+
+    // --- Clima: nivel del mar, intensidad glacial, puentes, hielo y periodos húmedos ---
+    function actualizarClima() {
+      const nivel = interpolar(historia.nivelMar, año);
+      const g = Math.min(1, Math.max(0, -nivel / 125 * glacial));
+      const hum = entre(año, historia.humedos.tramos);
+      const abiertos = historia.puentes.map(p => conPuentes && nivel <= p.umbral);
+      clima = { nivelMar: nivel, intensidadGlacial: g, humedoSahara: hum, puentesAbiertos: abiertos };
+      for (const i of tierra) {
+        hielo[i] = g >= gHielo[i] ? 1 : 0;
+        plataforma[i] = puente[i] >= 0 && abiertos[puente[i]] ? 1 : 0;
+        let b = bioma0[i];
+        if (b === MAR) b = plataforma[i] ? historia.puentes[puente[i]].bioma : MAR;
+        else if (b === DESIERTO && (rio[i] || (hum && humedo[i]))) b = ESTEPA;
+        if (hielo[i] && b !== MAR) b = HIELO;
+        bio[i] = b;
+        const frio = 1 - P.frio * g * Math.min(1, Math.max(0, (Math.abs(lat[i]) - 30) / 30));
+        base[i] = (b === MAR ? 0 : bioma0[i] === MAR ? areaCompleta(i) : area0[i]) * frio;
+      }
+    }
+
+    // --- Capacidad ---
+    const aptaAgricultura = i => (bio[i] === ESTEPA || bio[i] === BOSQUE || bio[i] === SELVA) && Math.abs(lat[i]) <= 58;
+    const etapaDe = bits => bits & INDUSTRIA ? INDUSTRIAL : bits & CIUDADES ? URBANA : bits & AGRICULTURA ? AGRICULTORES : RECOLECTORES;
+    // Lo agrícola solo sirve donde se puede cultivar; la navegación se conserva en cualquier lado
+    const aptas = (bits, j) => aptaAgricultura(j) ? bits : bits & (COSTERA | ALTURA);
+    function capacidad(i, e) {
+      if (base[i] <= 0) return 0;
+      let k = base[i] * P.densidad[e][bio[i]];
+      if (e === RECOLECTORES && costa[i]) k *= P.costa;
+      if (e === AGRICULTORES || e === URBANA) k *= 1 + Math.min(saber[i] / P.saberIntensifica, P.saberMax);
+      return k;
+    }
+    function contar() {
+      total = 0; totalIndustrial = 0;
+      for (const i of tierra) { total += pob[i]; if (innov[i] & INDUSTRIA) totalIndustrial += pob[i]; }
+    }
+
+    // --- Paso del tiempo ---
+    function paso(dt) {
+      año += dt;
+      actualizarClima();
+      contar();
+    }
+    function avanzar(años) {
+      let resto = Math.min(años, historia.presente - año);
+      while (resto > 1e-6 && !fin) {
+        const d = Math.min(resto, tramo(historia.pasos, año));
+        paso(d);
+        resto -= d;
+      }
+      if (año >= historia.presente - 1e-6) { año = historia.presente; fin = true; }
+    }
+
+    actualizarClima();
+    for (const o of historia.origenes) pob[celdaDe(o.lat, o.lon)] += o.personas;
+    for (const i of tierra) etapa[i] = pob[i] > 0 ? RECOLECTORES : VACIA;
+    contar();
+
+    return {
+      semilla,
+      avanzar,
+      año: () => año,
+      pasoMax: () => tramo(historia.pasos, año),
+      poblacionTotal: () => total,
+      terminado: () => fin,
+      climaActual: () => clima,
+      alHito(fn) { oyentes.push(fn); },
+      hitos: () => logros.slice(),
+      capacidad: i => capacidad(i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES),
+      celdaDe,
+      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma },
+      poblacionPorRegion() {
+        const t = new Float64Array(historia.regiones.length);
+        for (const i of tierra) if (region[i] >= 0) t[region[i]] += pob[i];
+        return t;
+      }
+    };
+  }
+
+  return {
+    crear, tramo, PARAMS,
+    BIOMA: { MAR, HIELO, TUNDRA, DESIERTO, ESTEPA, BOSQUE, SELVA },
+    INNOVACION: { COSTERA, AGRICULTURA, CIUDADES, ESCRITURA, ALTURA, INDUSTRIA },
+    ETAPA: { VACIA, RECOLECTORES, AGRICULTORES, URBANA, INDUSTRIAL }
+  };
+})();
+if (typeof module !== "undefined") module.exports = Motor;
