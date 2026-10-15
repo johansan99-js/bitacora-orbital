@@ -53,8 +53,9 @@ Todos se cargan con `<script>` clásicos, sin módulos ni compilación, como el 
 | `poblacion/mundo.js` | `MUNDO` | Datos fijos del mapa: tierra o mar, bioma, costa, superficie y región de cada celda. Generado, no se edita a mano | — |
 | `poblacion/datos.js` | `HISTORIA` | Datos reales sin lógica: curva del nivel del mar, periodos húmedos, puentes de tierra, regiones con domesticables, capas de hielo, hitos reales, población real estimada, velocidades del reloj. Cada dato con su fuente | — |
 | `poblacion/motor.js` | `Motor` | La simulación pura. No usa three.js ni el DOM. Funciona igual en el navegador y en Node | `MUNDO`, `HISTORIA` (inyectados) |
+| `poblacion/partida.js` | `Partida` | El reloj de la partida: velocidad automática por era, pausa en los hitos, fin en el presente, nueva partida. Sin DOM ni three.js | `Motor` |
 | `poblacion/vista.js` | `VistaTierra` | La escena 3D de la escala: globo, capa de datos, bandas, luces | three.js, `Motor` |
-| `poblacion/panel.js` | `PanelTierra` | Reloj, avisos de hitos, tarjeta comparativa, Bitácora de tu humanidad, muelle de continentes, capas | `Motor`, `HISTORIA`, DOM |
+| `poblacion/panel.js` | `PanelTierra` | Avisos de hitos, tarjeta comparativa, Bitácora de tu humanidad y fichas de continentes | `Partida`, `HISTORIA`, DOM |
 | `herramientas/generar_mundo.py` | — | Script de desarrollo (Python 3 + Pillow): lee `tex/earth_spec.jpg` y `tex/earth_day.jpg` y escribe `poblacion/mundo.js` | Pillow |
 | `pruebas/motor.test.mjs` | — | Pruebas unitarias del motor con un mundo de mentira (`node --test`) | Node 24 |
 | `pruebas/calibrar.mjs` | — | Corre 30 partidas completas con el mapa real y compara con la historia | Node 24 |
@@ -68,7 +69,7 @@ const m = Motor.crear(MUNDO, HISTORIA, opciones);
 m.avanzar(años);          // avanza la simulación; internamente en pasos de tamaño adecuado a la era
 m.año();                  // año calendario: negativo = a. C. (p. ej. −55974 = hace 58.000 años); "hace N años" = 2026 − año
 m.poblacionTotal();       // número de personas
-m.celdas;                 // vistas de solo lectura: poblacion (Float32Array), etapa (Uint8Array), innovaciones (Uint16Array)
+m.celdas;                 // vistas de solo lectura: poblacion (Float64Array), etapa (Uint8Array), innovaciones (Uint16Array)
 m.climaActual();          // { nivelMar, intensidadGlacial, humedoSahara, puentesAbiertos: [...] }
 m.alHito(fn);             // fn({ id, año, celda }) la primera vez que ocurre cada hito
 ```
@@ -115,21 +116,26 @@ Hace 300.000 años, unos pocos miles de personas repartidas en varios puntos de 
 
 ### Cada paso
 
-El tamaño del paso depende de la era (hasta 100 años al principio, 1 año en la era industrial). En cada paso, para cada celda habitada:
+El tamaño del paso depende de la era (200 años antes del Holoceno, 1 año desde 1900). En cada paso, para cada celda habitada:
 
 1. **Crecer:** crecimiento logístico hacia la capacidad: `ΔP = r · P · (1 − P/K) · Δt`, con `r` según la etapa y multiplicado por la opción `natalidad`.
 2. **Migrar:** una fracción se mueve a las vecinas habitables, mayor cuanto más llena está la celda y repartida según el espacio libre de cada vecina. Además hay un goteo de exploradores aunque la celda no esté llena, calibrado para que el frente avance del orden de 1 km por año. La migración nunca crea ni destruye personas.
 3. **Cruzar el mar:** según [Cruzar el mar](#cruzar-el-mar).
-4. **Innovar y contagiar:** cada innovación nace con cierta probabilidad por siglo en celdas que cumplen sus condiciones; una vez presente, se contagia a celdas vecinas aptas.
+4. **Innovar y contagiar:** cada innovación nace en celdas que cumplen sus condiciones, con una probabilidad por año que crece con la **densidad** y las **conexiones** de la celda, nunca con un tiempo de espera fijo. Una vez presente, se contagia a celdas vecinas aptas.
 
-| Innovación | Nace cuando… | Efecto |
+**Por qué densidad y no tiempo (riesgo de "efecto mariposa").** En una simulación libre de 300.000 años, un atraso temprano (cruzar el Sinaí 3.000 años tarde) podría arrastrarse hasta el final. Dos mecanismos lo absorben sin guionizar fechas:
+
+- **El embudo del Holoceno:** la agricultura exige el clima estable de los últimos 11.700 años. No importa cuándo llegaron los recolectores a Mesopotamia: todos esperan esa misma salida climática.
+- **El reloj se regula por masa crítica:** cada celda agrícola acumula **saber**, que crece con su población (más personas, más ideas, como en el modelo de Kremer, 1993) y se comparte con las vecinas. El saber sube la capacidad de agricultores y ciudades, y ciudades, navegación de altura e industria nacen según la densidad, el número de vecinas conectadas y el saber acumulado. Donde hay más gente conectada, la historia se acelera; donde no, espera.
+
+| Innovación | Nace cuando… (probabilidad proporcional a…) | Efecto |
 |---|---|---|
-| Navegación costera | Población estable en costas con tierra a 1–2 celdas de agua durante milenios | N = 2 |
-| Agricultura | Holoceno + región con domesticables + celda cerca de su capacidad durante siglos | Etapa 2; la capacidad se multiplica y los agricultores desplazan a los recolectores al expandirse |
-| Ciudades | Agricultura + densidad muy alta | Etapa 3 |
-| Escritura | Varias celdas con ciudades conectadas durante siglos | El contagio de innovaciones se acelera |
-| Navegación de altura | Escritura o tradición marinera de muchos siglos | Cruzar océanos |
-| Industria | Escritura + ciudades grandes + contacto entre continentes | Etapa 4: segundo salto de capacidad y crecimiento que luego baja (transición demográfica) |
+| Navegación costera | Hay población en la costa (a su tamaño) | N = 2 |
+| Agricultura | Holoceno + región con domesticables + celda llena de recolectores (a lo llena que está y a la riqueza de la región) | Etapa 2; la capacidad se multiplica y los agricultores desplazan a los recolectores al expandirse |
+| Ciudades | Agricultura + densidad por encima de un umbral (al exceso de densidad y a las vecinas agrícolas) | Etapa 3 |
+| Escritura | Ciudades con varias vecinas que también tienen ciudades (al tamaño de esa red) | El saber crece y se comparte más rápido, y el contagio de innovaciones se acelera |
+| Navegación de altura | Costa + navegación costera + agricultura (al saber acumulado) | Cruzar océanos |
+| Industria | Escritura + saber acumulado por encima de un umbral (al exceso de saber); además se contagia a todo el mundo agrícola en proporción a la población que ya es industrial | Etapa 4: segundo salto de capacidad y crecimiento que luego baja (transición demográfica) |
 
 Regiones con domesticables (con un "paquete" más o menos rico, que cambia la probabilidad): Creciente Fértil, China (ríos Amarillo y Yangtsé), Mesoamérica, Andes, Nueva Guinea, Sahel y Etiopía, este de Norteamérica.
 
@@ -231,6 +237,8 @@ Sobre un mundo de mentira pequeño (unas decenas de celdas, con su propia curva 
 | Población en 2026 | 3.000–15.000 millones |
 
 Y además en al menos el 80 % de las partidas la humanidad llega a todos los continentes habitados. Si no se cumple, se ajustan los parámetros de las reglas; nunca se fuerza un resultado. Cada partida sin dibujo debe tardar menos de 2 segundos.
+
+Se calibra en orden cronológico: primero las llegadas a los continentes, después la agricultura (que el Holoceno ya acota) y al final ciudades, escritura, industria y población, que dependen sobre todo del saber. Las fechas de Polinesia y Nueva Zelanda se muestran para comparar, pero no tienen ventana de calibración.
 
 ### Rendimiento y prueba en el navegador
 
