@@ -34,6 +34,7 @@ test("los hitos que nombran regiones, domesticables y continentes existen", () =
     c.hitos.forEach(id => assert.ok(ids.has(id), id));
     c.regiones.forEach(id => assert.ok(H.regiones.some(r => r.id === id), id));
   }
+  for (const b of H.barreras) b.entre.forEach(id => assert.ok(H.regiones.some(r => r.id === id), id));
 });
 
 test("los orígenes están en tierra firme", () => {

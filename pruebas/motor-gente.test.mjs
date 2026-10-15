@@ -77,3 +77,18 @@ test("cada hito de llegada se avisa una sola vez", () => {
   assert.equal(vistos.filter(id => id === "b").length, 1);
   assert.equal(m.hitos().filter(x => x.id === "b").length, 1);
 });
+
+test("un estrecho que nunca se secó solo se cruza por mar", () => {
+  const h = historiaDePrueba({
+    regiones: [{ id: "a", nombre: "A", hito: null, cajas: [[-90, 90, -180, -1]] }, { id: "b", nombre: "B", hito: null, cajas: [[-90, 90, -1, 180]] }],
+    barreras: [{ entre: ["a", "b"] }],
+    origenes: [{ nombre: "A", lat: 0, lon: -2, personas: 3000 }]
+  });
+  const mundo = () => mundoDePrueba(["00000", "04440", "00000"]);
+  const caminando = Motor.crear(mundo(), h, { params: { ...SIN_AZAR, exploracion: 0.01 } });
+  caminando.avanzar(5000);
+  assert.equal(caminando.celdas.poblacion[caminando.celdaDe(0, 0)], 0);
+  const navegando = Motor.crear(mundo(), h, { semilla: 3, params: { costera: 0, exploracion: 0.01, cruce: [0.01, 0.01, 0.01] } });
+  navegando.avanzar(5000);
+  assert.ok(navegando.celdas.poblacion[navegando.celdaDe(0, 0)] > 0);
+});

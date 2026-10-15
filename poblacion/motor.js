@@ -141,6 +141,20 @@ const Motor = (() => {
       humedo[i] = enCajas(la, lo, historia.humedos.cajas) ? 1 : 0;
       for (const h of historia.hielo) if (h.gMin < gHielo[i] && enCajas(la, lo, h.cajas)) gHielo[i] = h.gMin;
     }
+    // Barreras: celdas de tierra firme vecinas a través de un estrecho que nunca se secó; solo se cruzan por mar
+    const ids = historia.regiones.map(r => r.id);
+    for (const b of historia.barreras) {
+      const A = ids.indexOf(b.entre[0]), B = ids.indexOf(b.entre[1]), tope = b.latMax ?? 90;
+      for (const i of tierra) {
+        if (bioma0[i] === MAR || (region[i] !== A && region[i] !== B)) continue;
+        for (let k = 0; k < 8; k++) {
+          const j = vecinas[i * 8 + k];
+          if (j < 0 || bioma0[j] === MAR) continue;
+          const cruza = (region[i] === A && region[j] === B) || (region[i] === B && region[j] === A);
+          if (cruza && lat[i] <= tope && lat[j] <= tope) vecinas[i * 8 + k] = -1;
+        }
+      }
+    }
 
     // --- Estado ---
     const pob = new Float64Array(N), innov = new Uint16Array(N), etapa = new Uint8Array(N), saber = new Float32Array(N);
@@ -197,14 +211,15 @@ const Motor = (() => {
         const e = etapaDe(innov[i]), K = capacidad(i, e);
         if (K <= 0) { vaciar(i); continue; }
         const r = P.crecimiento[e] * natalidad;
-        const q = r > 0 ? K / (1 + ((K - p) / p) * Math.exp(-r * dt)) : Math.min(p, K);
+        const q = K / (1 + ((K - p) / p) * Math.exp(-r * dt));   // con r = 0 da q = p
         if (q < P.minimo) vaciar(i); else pob[i] = q;
       }
     }
-    const llegan = new Float64Array(N), aporte = new Float64Array(N), origen = new Int32Array(N), pesos = new Float64Array(8);
-    // Una parte de cada celda se muda a las vecinas, más cuanto más llena está y hacia donde hay más espacio
+    const llegan = new Float64Array(N), salen = new Float64Array(N), aporte = new Float64Array(N), traen = new Uint16Array(N), pesos = new Float64Array(8);
+    // Una parte de cada celda se muda a las vecinas, más cuanto más llena está y hacia donde hay más espacio.
+    // Todo se calcula con la población del inicio del paso y se aplica al final, así el orden de las celdas no influye.
     function migrar(dt) {
-      for (const i of tierra) { llegan[i] = 0; aporte[i] = 0; }
+      for (const i of tierra) { llegan[i] = 0; salen[i] = 0; aporte[i] = 0; }
       for (const i of tierra) {
         const p = pob[i];
         if (p <= 0) continue;
@@ -224,17 +239,18 @@ const Motor = (() => {
         // Grupos de menos de `minimo` personas no se van
         for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < P.minimo) { suma -= pesos[k]; pesos[k] = 0; }
         if (suma <= 0) continue;
-        pob[i] -= sale;
+        salen[i] = sale;
         for (let k = 0; k < 8; k++) if (pesos[k] > 0) {
           const j = vecinas[i * 8 + k], v = sale * pesos[k] / suma;
           llegan[j] += v;
-          if (v > aporte[j]) { aporte[j] = v; origen[j] = i; }
+          if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(innov[i], j); }
         }
       }
       for (const i of tierra) {
+        pob[i] -= salen[i];
         if (llegan[i] <= 0) continue;
         // Si los recién llegados son mayoría, traen su forma de vida (agricultores que desplazan a recolectores)
-        if (llegan[i] > pob[i]) adoptar(i, aptas(innov[origen[i]], i));
+        if (llegan[i] > pob[i]) adoptar(i, traen[i]);
         pob[i] += llegan[i];
       }
     }

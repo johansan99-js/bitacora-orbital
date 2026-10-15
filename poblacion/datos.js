@@ -114,6 +114,16 @@ const HISTORIA = (() => {
       { id: "polinesia", nombre: "Polinesia", hito: "polinesia", cajas: [[-30, 25, -180, -105]] }
     ],
 
+    // Estrechos que la cuadrícula de 2° deja como celdas vecinas aunque el mar nunca se secó del todo: Gibraltar
+    // (14 km), Bab el-Mandeb (unos 4 km en el Último Máximo Glacial; Lambeck et al. 2011, Quaternary Science
+    // Reviews 30) y Bering (82 km; cuando baja el mar, el paso es el puente de Beringia, que tiene sus propias
+    // celdas). Entre celdas de tierra firme de estas regiones no se camina: solo se cruza por mar.
+    barreras: [
+      { entre: ["africa", "europa"] },
+      { entre: ["africa", "asia_occ"], latMax: 26 },
+      { entre: ["asia", "norteamerica"] }
+    ],
+
     // Origen panafricano: varios grupos en distintos puntos de África
     origenes: [
       { nombre: "Jebel Irhoud (Marruecos)", lat: 31.9, lon: -8.9, personas: 2000 },   // Hublin et al. (2017), Nature 546

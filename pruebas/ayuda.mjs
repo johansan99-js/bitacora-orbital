@@ -15,7 +15,7 @@ export function historiaDePrueba(extra = {}) {
     nivelMar: [[-1e7, 0], [3000, 0]],
     pasos: [[-1e9, 10]],
     velocidades: [[-1e9, 1000]],
-    puentes: [], hielo: [], humedos: { cajas: [], tramos: [] }, rios: [], domesticables: [], islas: [],
+    puentes: [], hielo: [], humedos: { cajas: [], tramos: [] }, rios: [], domesticables: [], islas: [], barreras: [],
     regiones: [{ id: "todo", nombre: "Todo", hito: null, cajas: [[-90, 90, -180, 180]] }],
     origenes: [], hitos: [],
     ...extra
