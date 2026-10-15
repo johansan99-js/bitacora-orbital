@@ -18,7 +18,8 @@ MAR, HIELO, TUNDRA, DESIERTO, ESTEPA, BOSQUE, SELVA = range(7)
 
 def bioma(r, g, b, lat):
     """Clasifica el color medio de la tierra de una celda. Umbrales elegidos mirando la textura:
-    hielo blanco, desierto arena, sabana y estepa pardas (más rojo que azul), bosque y selva oscuros."""
+    hielo blanco, desierto arena, sabana y estepa pardas (más rojo que azul), bosque y selva oscuros.
+    Los desiertos oscuros y rojizos (interior de Australia) se detectan por la proporción rojo/azul, y los desiertos claros fuera de los trópicos (Gobi, Irán, Sonora) por su brillo; el Sahel, a 13° de latitud, queda como estepa."""
     luz = (r + g + b) / 3
     if luz >= 200 and b >= 190:
         return HIELO
@@ -26,6 +27,8 @@ def bioma(r, g, b, lat):
         return DESIERTO
     if abs(lat) >= 64:
         return TUNDRA
+    if r >= 1.5 * b or (luz >= 135 and r >= b + 30 and abs(lat) >= 18):
+        return DESIERTO
     if r > b + 10:
         return ESTEPA
     return SELVA if abs(lat) < 15 else BOSQUE
