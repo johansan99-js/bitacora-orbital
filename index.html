@@ -299,6 +299,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); z-index: 5;
   width: min(460px, calc(100vw - 32px)); box-sizing: border-box; display: grid; gap: 10px; padding: 18px 20px;
   background: var(--panel-solid); border: 1px solid var(--star); border-radius: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  max-height: calc(100dvh - 190px); overflow-y: auto;
 }
 .t-hito h2 { margin: 0; font-size: 18px; line-height: 1.3; }
 .t-hito p { margin: 0; color: #c4cbe0; font-size: 14px; }
@@ -314,9 +315,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 .t-lista b { font-size: 15px; }
 .t-lista .t-comp { font-family: var(--f-mono); font-size: 12.5px; color: #c4cbe0; }
 .t-lista .no { color: var(--muted); }
+.zoom { top: max(50%, 390px); }   /* en pantallas bajas la tarjeta no tapa la escalera de escalas; en celular la regla móvil la reemplaza */
 @media (max-width: 760px) {
   .t-card { left: auto; right: 16px; top: calc(124px + env(safe-area-inset-top, 0px)); width: 190px; padding: 10px 12px; font-size: 11.5px; }
   .t-hito { bottom: calc(132px + env(safe-area-inset-bottom, 0px)); padding: 14px 16px; }
+  .clock .icon-btn { flex: none; }
 }
 
 /* Niveles del cuestionario */
@@ -457,10 +460,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
     <ul class="t-cont" id="t-cont" aria-label="Continentes alcanzados"></ul>
   </section>
 
-  <section class="t-hito" id="t-hito" hidden role="dialog" aria-labelledby="t-hito-titulo" aria-live="polite">
+  <section class="t-hito" id="t-hito" hidden role="dialog" aria-labelledby="t-hito-titulo" aria-describedby="t-hito-fechas t-hito-texto t-hito-fuente">
     <span class="kind">Hito</span>
     <h2 id="t-hito-titulo"></h2>
-    <dl class="t-fechas">
+    <dl class="t-fechas" id="t-hito-fechas">
       <div><dt>Tu humanidad</dt><dd id="t-hito-tuyo"></dd></div>
       <div><dt>En la realidad</dt><dd id="t-hito-real"></dd></div>
     </dl>
@@ -2132,7 +2135,7 @@ const Space = (() => {
 
   // Reloj: el del sistema solar o, en la escala "La Tierra", el de la partida de población
   const speed = $("speed"), dateOut = $("date-out"), partida = Space.tierra.partida;
-  const enTierra = () => !!partida && Space.level() === "tierra";
+  const enTierra = () => !!partida && !Space.tierra.fallo && Space.level() === "tierra";
   const velocidad = { solar: 2, tierra: 2 };
   let playing = true;
   function showPlaying(p) {
@@ -2158,15 +2161,26 @@ const Space = (() => {
   }
   speed.addEventListener("input", setSpeed);
   $("btn-play").addEventListener("click", () => {
-    if (enTierra()) return showPlaying(partida.setReproduciendo(!partida.reproduciendo()));
+    if (enTierra()) {
+      if (panel && panel.avisoAbierto()) return panel.seguir();   // con un aviso abierto, reproducir equivale a "Seguir"
+      return showPlaying(partida.setReproduciendo(!partida.reproduciendo()));
+    }
     playing = !playing; Space.setPlaying(playing); showPlaying(playing);
   });
   dateOut.addEventListener("click", () => {
     if (!enTierra()) return Space.today();
     if (confirm("¿Empezar una partida nueva? La humanidad volverá a nacer en África hace 300.000 años.")) partida.nueva();
   });
-  if (partida) partida.alEvento(() => { if (enTierra()) showPlaying(partida.reproduciendo()); });
+  if (partida) partida.alEvento(e => {
+    if (!enTierra()) return;
+    showPlaying(partida.reproduciendo());
+    // La ficha abierta de un continente se actualiza con cada hito, partida nueva o fin
+    if (e.tipo !== "pausa" && current && current.lv === "tierra" && !sheet.classList.contains("closed")) fill(current);
+  });
   setInterval(tickDate, 200);
+  // Si la escala "La Tierra" falla durante la partida, la interfaz se entera y muestra el aviso
+  let falloVisto = Space.tierra.fallo;
+  setInterval(() => { if (Space.tierra.fallo !== falloVisto) { falloVisto = Space.tierra.fallo; Space.onLevel(Space.level()); } }, 500);
 
   // Pista inicial
   const hint = $("hint");
@@ -2287,7 +2301,8 @@ const Space = (() => {
 
   // La Tierra habitada: tarjeta, avisos de hitos y Bitácora
   if (partida && typeof PanelTierra !== "undefined") {
-    panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal });
+    try { panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal }); }
+    catch (e) { console.error("El panel de La Tierra no está disponible:", e); panel = null; }
   }
   Space.onLevel("solar");
 

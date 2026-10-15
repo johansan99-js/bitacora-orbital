@@ -33,8 +33,9 @@ const PanelTierra = (() => {
   function comparar(año, real) {
     if (!real) return "";
     const [a, b] = real;
-    if (año >= a && año <= b) return "dentro del rango real";
-    return `${num(Math.round(año < a ? a - año : año - b), 0)} años ${año < a ? "antes" : "después"}`;
+    const d = Math.round(año < a ? a - año : año > b ? año - b : 0);
+    if (d === 0) return "dentro del rango real";
+    return `${num(d, 0)} ${d === 1 ? "año" : "años"} ${año < a ? "antes" : "después"}`;
   }
 
   function iniciar({ partida, historia, normal, irA, abrirModal }) {
@@ -63,8 +64,9 @@ const PanelTierra = (() => {
       $("t-nota").hidden = año >= -10000;
       const hechos = logrados();
       $("t-cont").replaceChildren(...historia.continentes.map(c => {
-        const li = el("li", null, c.nombre);
-        li.classList.toggle("si", c.hitos.length === 0 || c.hitos.some(id => hechos.has(id)));
+        const li = el("li", null, c.nombre), si = c.hitos.length === 0 || c.hitos.some(id => hechos.has(id));
+        li.classList.toggle("si", si);
+        li.setAttribute("aria-label", `${c.nombre}: ${si ? "alcanzado" : "aún no"}`);
         return li;
       }));
     }
@@ -82,12 +84,14 @@ const PanelTierra = (() => {
       aviso.hidden = false;
       $("t-hito-seguir").focus();
     }
-    $("t-hito-seguir").addEventListener("click", () => {
+    function seguir() {
       partida.tomarHito();
       if (partida.pendientes().length) return mostrarHito();
+      if (aviso.contains(document.activeElement)) $("btn-play").focus();   // el foco no se pierde al cerrar el aviso
       aviso.hidden = true;
       if (!partida.terminada()) partida.setReproduciendo(true);
-    });
+    }
+    $("t-hito-seguir").addEventListener("click", seguir);
     $("t-hito-ir").addEventListener("click", () => {
       const h = partida.pendientes()[0];
       if (!h || h.celda < 0) return;
@@ -123,7 +127,7 @@ const PanelTierra = (() => {
       visible = on; card.hidden = !on; boton.hidden = !on;
       if (on) { pintarTarjeta(); mostrarHito(); } else aviso.hidden = true;
     }
-    return { mostrar };
+    return { mostrar, seguir, avisoAbierto: () => !aviso.hidden };
   }
 
   return { iniciar, personas, realEn, textoReal, rango, comparar };

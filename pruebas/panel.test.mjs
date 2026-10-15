@@ -30,4 +30,6 @@ test("la comparación dice si cayó dentro del rango o cuánto antes o después"
   assert.equal(PanelTierra.comparar(-3700, [-4000, -3500]), "dentro del rango real");
   assert.equal(PanelTierra.comparar(-4500, [-4000, -3500]), "500 años antes");
   assert.equal(PanelTierra.comparar(1900, [1760, 1830]), "70 años después");
+  assert.equal(PanelTierra.comparar(1759.6, [1760, 1830]), "dentro del rango real");
+  assert.equal(PanelTierra.comparar(1831, [1760, 1830]), "1 año después");
 });
