@@ -1636,7 +1636,7 @@ const Space = (() => {
     partidaTierra = Partida.crear(MUNDO, HISTORIA);
     LV.tierra = VistaTierra.crear({
       partida: partidaTierra, historia: HISTORIA, cargarTextura: loadTex, punto: round, aspectK, reduceMotion,
-      respaldo: new THREE.CanvasTexture(Tex.forBody(byId.tierra, BODIES.indexOf(byId.tierra))),
+      respaldo: byId.tierra.mesh.material.map,
       fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
     });
   } catch (e) {
@@ -1670,14 +1670,13 @@ const Space = (() => {
   let lvl = "solar", focusObj = null;
   // Si dos nombres se encimarían, gana el objeto enfocado y luego el más grande o brillante
   const rank = o => (focusObj === o ? 1e6 : 0) + (o.enter ? 100 : 0) + (o.deco ? -1 : (o.s || o.R || (o.near ? 0.5 : o.r ? 3 : 1)));
-  const haciaCam = new THREE.Vector3();
   function updateCosmosLabels(w, h) {
     const L = LV[lvl], tanHalf = Math.tan(D2R(camera.fov / 2)), boxes = [];
     const nearSun = lvl !== "galaxy" || camera.position.distanceTo(L.anchor) < 24;
     [...L.objs].sort((a, b) => rank(b) - rank(a)).forEach(o => {
       tmp.copy(o.world).project(camera);
       let off = tmp.z > 1 || Math.abs(tmp.x) > 1.15 || Math.abs(tmp.y) > 1.15 || (o.near && !nearSun)
-        || (o.normal && o.normal.dot(haciaCam.copy(camera.position).normalize()) < 0.2);
+        || (o.normal && o.world.dot(camera.position) < o.world.lengthSq() * 1.1);   // detrás del horizonte del globo
       if (!off) {
         const pr = o.r / (camera.position.distanceTo(o.world) * tanHalf) * h / 2;
         const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h - (o.r ? pr + 4 : 0);
@@ -1826,12 +1825,17 @@ const Space = (() => {
       controls.target.lerpVectors(fly.fromTgt, fly.getTgt(), k);
       camera.position.lerpVectors(fly.fromCam, cam, k);
       camera.position.y += Math.sin(Math.PI * k) * fly.fromCam.distanceTo(cam) * 0.12;
+      if (LV[lvl].radio && camera.position.length() < LV[lvl].radio) camera.position.setLength(LV[lvl].radio);   // no atravesar el globo
       if (fly.t >= 1) { [controls.minDistance, controls.maxDistance] = fly.lim; fly = null; controls.enabled = true; }
     } else if (solar && focus) {
       tmp.copy(focus.world).sub(last);
       camera.position.add(tmp); controls.target.add(tmp);
     }
-    if (LV[lvl].update) LV[lvl].update(dt);
+    // Una escala que falla no debe congelar las demás: se desactiva y la app sigue
+    if (LV[lvl].update) {
+      try { LV[lvl].update(dt); }
+      catch (e) { console.error(`La escala "${lvl}" falló y se desactivó:`, e); LV[lvl].update = null; LV[lvl].fallo = true; }
+    }
     controls.update();
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);

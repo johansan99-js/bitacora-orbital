@@ -43,8 +43,9 @@ const VistaTierra = (() => {
           vec4 c = texture2D(capas, vUv) * verCapas;
           vec3 col = texture2D(dia, vUv).rgb;
           col = mix(col, vec3(0.45, 0.42, 0.32), c.g * (1.0 - c.r));
-          col = mix(col, vec3(0.93, 0.96, 1.0), c.r);
-          float mar = texture2D(mares, vUv).r * (1.0 - c.g) * (1.0 - c.r);
+          float hielo = c.r * (1.0 - texture2D(mares, vUv).r * 0.9);   // el hielo glaciar se dibuja sobre la tierra, no sobre el mar
+          col = mix(col, vec3(0.93, 0.96, 1.0), hielo);
+          float mar = texture2D(mares, vUv).r * (1.0 - c.g) * (1.0 - hielo);
           vec3 luz = col * (max(nl, 0.0) * 1.1 + 0.05);
           luz += vec3(1.0, 0.95, 0.85) * pow(max(dot(N, normalize(L + V)), 0.0), 220.0) * mar * 0.5 * step(0.0, nl);
           luz += vec3(0.015, 0.025, 0.05) * (1.0 - smoothstep(-0.2, 0.1, nl));
@@ -181,6 +182,7 @@ const VistaTierra = (() => {
       if (e.tipo !== "nueva") return;
       nBandas = 0; bandasGeo.setDrawRange(0, 0);
       añoCapas = añoGente = NaN;
+      pintarCapas(); repartirBandas(); encenderLuces();
     });
     function update(dt) {
       partida.paso(dt);
@@ -203,7 +205,7 @@ const VistaTierra = (() => {
     pintarCapas(); repartirBandas(); encenderLuces();
     return {
       scene, objs, update, setCapa, oclusor: globo,
-      minD: R * 1.15, maxD: R * 6, near: R * 2.6,
+      minD: R * 1.15, maxD: R * 6, near: R * 2.6, radio: R * 1.6,
       tgt: new THREE.Vector3(), anchor: new THREE.Vector3(),
       over: () => new THREE.Vector3(0, R * 0.9, R * 2.8).multiplyScalar(aspectK())
     };
