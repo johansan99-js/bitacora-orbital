@@ -10,7 +10,7 @@ const HISTORIA = (() => {
     // Inicio del Holoceno, hace 11.700 años (Walker et al. 2009, Journal of Quaternary Science)
     holoceno: PRESENTE - 11700,
 
-    // Nivel del mar (m respecto del actual) cada 5.000 años aprox. Valores aproximados leídos de la curva de
+    // Nivel del mar (m respecto del actual) cada 2.000–10.000 años. Valores aproximados leídos de la curva de
     // Spratt y Lisiecki (2016), "A Late Pleistocene sea level stack", Climate of the Past 12: 1079–1092.
     nivelMar: [
       [305000, -40], [300000, -40], [290000, -50], [280000, -70], [270000, -90], [260000, -80], [250000, -40], [240000, -10],
@@ -30,14 +30,17 @@ const HISTORIA = (() => {
 
     // Puentes de tierra: celdas de mar que quedan secas cuando el mar baja de `umbral` (m).
     // Umbral ≈ profundidad del estrecho según la batimetría GEBCO; valores aproximados.
+    // Las cajas solo cubren la plataforma continental: el estrecho de Makassar, al este de Borneo, nunca se secó,
+    // por eso llegar a Australia siempre exigió cruzar el mar (la línea de Wallace).
     puentes: [
       { id: "beringia", nombre: "Beringia", umbral: -50, bioma: 2, cajas: [[60, 72, 165, 180], [60, 72, -180, -158]] },
-      { id: "sunda", nombre: "Sunda", umbral: -40, bioma: 6, cajas: [[-8, 10, 95, 120]] },
-      { id: "torres", nombre: "Estrecho de Torres", umbral: -12, bioma: 4, cajas: [[-12, -8, 132, 145]] },
+      { id: "sunda", nombre: "Sunda", umbral: -40, bioma: 6, cajas: [[-8, -2, 105, 115], [-2, 5, 101, 115], [5, 13, 99, 107]] },
+      { id: "torres", nombre: "Estrecho de Torres", umbral: -12, bioma: 4, cajas: [[-12, -10, 140, 144]] },
+      { id: "arafura", nombre: "Plataforma de Arafura", umbral: -50, bioma: 4, cajas: [[-14, -8, 130, 140]] },
       { id: "bass", nombre: "Estrecho de Bass", umbral: -50, bioma: 5, cajas: [[-41, -38, 144, 149]] },
       { id: "doggerland", nombre: "Doggerland", umbral: -25, bioma: 4, cajas: [[51, 56, -2, 8], [49, 51, -5, 2]] },
       { id: "golfo_persico", nombre: "Golfo Pérsico", umbral: -40, bioma: 4, cajas: [[24, 30, 48, 56]] },
-      { id: "adan", nombre: "Puente de Adán", umbral: -10, bioma: 6, cajas: [[8, 11, 78, 81]] }
+      { id: "adan", nombre: "Puente de Adán", umbral: -10, bioma: 6, cajas: [[8, 10, 78, 80]] }
     ],
 
     // Capas de hielo: la celda se cubre cuando la intensidad glacial (0–1, según el nivel del mar) llega a gMin.
@@ -61,7 +64,8 @@ const HISTORIA = (() => {
       tramos: [hace(245000, 235000), hace(220000, 195000), hace(130000, 115000), hace(105000, 95000), hace(85000, 75000), hace(14500, 5000)]
     },
 
-    // Valles de ríos en el desierto: siempre cuentan como estepa (riego natural)
+    // Valles de ríos en el desierto: siempre cuentan como estepa (riego natural).
+    // Las cajas se dibujaron a mano sobre el mapa de 2° y son aproximadas.
     rios: [
       { nombre: "Nilo", cajas: [[22, 32, 30, 34]] },
       { nombre: "Tigris y Éufrates", cajas: [[29, 38, 38, 49]] },
@@ -80,7 +84,8 @@ const HISTORIA = (() => {
       { id: "este_norteamerica", nombre: "Este de Norteamérica", riqueza: 0.4, cajas: [[33, 42, -92, -80]] }
     ],
 
-    // Islas demasiado chicas para el mapa de 2°: se agregan con su superficie real (km²)
+    // Islas demasiado chicas para el mapa de 2°: se agregan con su superficie (km²). Son superficies de tierra
+    // aproximadas de cada archipiélago, según The World Factbook (CIA).
     islas: [
       { nombre: "Hawái", lat: 19.6, lon: -155.5, km2: 16600, bioma: 6 },
       { nombre: "Islas de la Sociedad", lat: -17.6, lon: -149.4, km2: 1600, bioma: 6 },
@@ -96,6 +101,7 @@ const HISTORIA = (() => {
     ],
 
     // Regiones para los hitos de llegada. Gana la primera caja que contiene el centro de la celda.
+    // Las cajas se dibujaron a mano sobre el mapa de 2° y son aproximadas.
     regiones: [
       { id: "asia_occ", nombre: "Asia occidental", hito: null, cajas: [[36, 42, 26, 50], [29, 36, 34.5, 63], [21, 29, 37, 63], [15, 21, 41, 63], [12, 15, 43, 63]] },
       { id: "africa", nombre: "África", hito: null, cajas: [[-36, 35, -20, 52], [35, 38, -2, 11.5]] },
@@ -150,24 +156,24 @@ const HISTORIA = (() => {
       { id: "agricultura_andes", titulo: "Nació la agricultura en los Andes", corto: "Agricultura: Andes", real: [-8000, -5000],
         texto: "En los Andes y la costa del Perú se domesticaron calabazas, la papa y la quinua; más tarde, la llama y la alpaca.",
         fuente: "Larson et al. (2014), PNAS 111" },
-      { id: "agricultura_sahel", titulo: "Nació la agricultura en el Sahel y Etiopía", corto: "Agricultura: Sahel y Etiopía", real: [-3000, -2000],
-        texto: "Al sur del Sahara se domesticaron el sorgo y el mijo perla.",
-        fuente: "Manning et al. (2011), Journal of Archaeological Science 38; Larson et al. (2014), PNAS 111" },
-      { id: "agricultura_este_norteamerica", titulo: "Nació la agricultura en el este de Norteamérica", corto: "Agricultura: este de Norteamérica", real: [-3000, -1800],
-        texto: "En el este de Norteamérica se domesticaron el girasol, una calabaza y otras plantas de semilla.",
-        fuente: "Smith (2006), PNAS 103" },
       { id: "primera_ciudad", titulo: "Nació la primera ciudad", corto: "Primera ciudad", real: [-4000, -3500],
         texto: "Uruk, en Mesopotamia, llegó a tener decenas de miles de habitantes: suele considerarse la primera ciudad.",
         fuente: "Algaze (2008), Ancient Mesopotamia at the Dawn of Civilization" },
       { id: "escritura", titulo: "Nació la escritura", corto: "Escritura", real: [-3300, -3200],
         texto: "Las tablillas protocuneiformes de Uruk son la escritura más antigua conocida; en Egipto apareció casi al mismo tiempo.",
         fuente: "Woods, ed. (2010), Visible Language, Oriental Institute de Chicago" },
+      { id: "agricultura_sahel", titulo: "Nació la agricultura en el Sahel y Etiopía", corto: "Agricultura: Sahel y Etiopía", real: [-3000, -2000],
+        texto: "Al sur del Sahara se domesticaron el sorgo y el mijo perla.",
+        fuente: "Manning et al. (2011), Journal of Archaeological Science 38; Larson et al. (2014), PNAS 111" },
+      { id: "agricultura_este_norteamerica", titulo: "Nació la agricultura en el este de Norteamérica", corto: "Agricultura: este de Norteamérica", real: [-3000, -1800],
+        texto: "En el este de Norteamérica se domesticaron el girasol, una calabaza y otras plantas de semilla.",
+        fuente: "Smith (2006), PNAS 103" },
       { id: "polinesia", titulo: "Tu humanidad llegó a la Polinesia", corto: "Llegada a la Polinesia", real: [-900, -800],
         texto: "La cultura Lapita llegó a Tonga y Samoa hacia 900–800 a. C. La Polinesia oriental (Tahití, Hawái, Rapa Nui) se pobló mucho después, hacia 1000–1200 d. C.",
         fuente: "Burley et al. (2012), PLoS ONE 7: e48769; Wilmshurst et al. (2011), PNAS 108" },
       { id: "nueva_zelanda", titulo: "Tu humanidad llegó a Nueva Zelanda", corto: "Llegada a Nueva Zelanda", real: [1250, 1300],
         texto: "Fue la última gran tierra habitada: los antepasados de los maoríes llegaron desde la Polinesia oriental hacia 1250–1300 d. C.",
-        fuente: "Wilmshurst et al. (2011), PNAS 108; Bunbury et al. (2022), Science 378" },
+        fuente: "Wilmshurst et al. (2011), PNAS 108; Bunbury, Petchey y Bickler (2022), PNAS 119: e2207609119" },
       { id: "industria", titulo: "Empezó la Revolución Industrial", corto: "Revolución Industrial", real: [1760, 1830],
         texto: "Empezó en Gran Bretaña hacia 1760, con la máquina de vapor y las fábricas textiles, y desde allí se extendió por el mundo.",
         fuente: "Allen (2009), The British Industrial Revolution in Global Perspective" },
@@ -199,7 +205,7 @@ const HISTORIA = (() => {
           "Durante la mayor parte de nuestra historia, casi toda la humanidad vivió en África."] },
       { id: "c-europa", nombre: "Europa", tipo: "Continente", lat: 50, lon: 15, color: "#8fb8ff", regiones: ["europa"], hitos: ["europa"], stats: [],
         lede: "Llegaron desde Asia occidental y encontraron a los neandertales, que vivían allí desde hacía cientos de miles de años.",
-        facts: ["Los Homo sapiens más antiguos de Europa tienen entre 54.000 y 45.000 años.",
+        facts: ["Los Homo sapiens más antiguos de Europa ampliamente aceptados tienen entre 54.000 y 45.000 años.",
           "Allí convivieron miles de años con los neandertales."] },
       { id: "c-asia", nombre: "Asia", tipo: "Continente", lat: 40, lon: 95, color: "#ff9f6b", regiones: ["asia_occ", "asia"], hitos: ["salida_africa", "asia"], stats: [],
         lede: "El continente más grande fue el primer paso fuera de África y la ruta hacia Oceanía y América.",

@@ -16,6 +16,7 @@ test("las tablas de tiempo están ordenadas y cubren toda la partida", () => {
 });
 
 test("cada hito tiene textos, fuente y una fecha real válida", () => {
+  assert.equal(new Set(H.hitos.map(h => h.id)).size, H.hitos.length);
   for (const h of H.hitos) {
     assert.ok(h.titulo && h.corto && h.texto, h.id);
     if (h.id === "extincion") { assert.equal(h.real, null); continue; }
@@ -47,5 +48,12 @@ test("todas las cajas tienen coordenadas válidas", () => {
   for (const [a, b, c, d] of cajas) {
     assert.ok(a <= b && a >= -90 && b <= 90);
     assert.ok(c >= -180 && d <= 180);
+    assert.ok(c <= d);
   }
+});
+
+test("ningún puente de tierra cruza la línea de Wallace", () => {
+  const dentro = ([a, b, c, d], la, lo) => a <= la && la <= b && c <= lo && lo <= d;
+  for (const [la, lo] of [[-1, 119], [-3, 117], [-7, 117]])
+    for (const p of H.puentes) for (const caja of p.cajas) assert.ok(!dentro(caja, la, lo), `${p.id} ${la},${lo}`);
 });
