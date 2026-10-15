@@ -840,6 +840,7 @@ const STATUS = { done: "Completada", live: "Activa", way: "En camino", plan: "Pl
 
 // Escalas del viaje, de la más cercana a la más lejana. span: lo que mide la vista
 const SCALES = [
+  { id: "tierra", name: "La Tierra", span: "miles de km", pill: "" },
   { id: "solar", name: "Sistema solar", span: "horas luz", pill: "" },
   { id: "stars", name: "Estrellas vecinas", span: "decenas de años luz", pill: "Cada círculo marca 10 años luz desde el Sol" },
   { id: "galaxy", name: "Vía Láctea", span: "100.000 años luz", pill: "La luz tarda unos 100.000 años en cruzar la galaxia" },
@@ -1176,6 +1177,12 @@ const Tex = (() => {
   return { forBody, clouds, rings, glow };
 })();
 </script>
+<script src="poblacion/mundo.js"></script>
+<script src="poblacion/datos.js"></script>
+<script src="poblacion/motor.js"></script>
+<script src="poblacion/partida.js"></script>
+<script src="poblacion/vista.js"></script>
+<script src="poblacion/panel.js"></script>
 <script>
 // Escena 3D: estrellas, Sol, planetas, cinturones, órbitas y cámara que viaja entre astros.
 const Space = (() => {
@@ -1622,6 +1629,23 @@ const Space = (() => {
       anchor: new THREE.Vector3(), near: 9, objs: [...COSMOS.group, ...deco] };
   }
 
+  // La Tierra habitada (poblacion/*.js). Si algo falla, la escala queda vacía con un aviso y el resto sigue igual.
+  let partidaTierra = null;
+  try {
+    if (typeof VistaTierra === "undefined") throw new Error("No se cargó poblacion/vista.js");
+    partidaTierra = Partida.crear(MUNDO, HISTORIA);
+    LV.tierra = VistaTierra.crear({
+      partida: partidaTierra, historia: HISTORIA, cargarTextura: loadTex, punto: round, aspectK, reduceMotion,
+      respaldo: new THREE.CanvasTexture(Tex.forBody(byId.tierra, BODIES.indexOf(byId.tierra))),
+      fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
+    });
+  } catch (e) {
+    console.error("La Tierra habitada no está disponible:", e);
+    partidaTierra = null;
+    LV.tierra = { scene: new THREE.Scene(), minD: 12, maxD: 60, tgt: new THREE.Vector3(), anchor: new THREE.Vector3(), near: 26,
+      over: () => new THREE.Vector3(0, 9, 28), objs: [], fallo: true };
+  }
+
   // Etiquetas y áreas de toque de las escalas cósmicas
   ORDER.filter(id => id !== "solar").forEach(id => {
     const L = LV[id];
@@ -1635,22 +1659,25 @@ const Space = (() => {
         t.type = "button"; t.tabIndex = -1;
         t.addEventListener("click", () => api.onPick && api.onPick(o.id));
         objById[o.id] = o;
-        const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(o.r * 1.2, id === "stars" ? 1.4 : id === "galaxy" ? 2.4 : 4), 12, 6),
+        const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(o.r * 1.2, id === "stars" ? 1.4 : id === "galaxy" ? 2.4 : id === "tierra" ? 1.2 : 4), 12, 6),
           new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }));
         hit.position.copy(o.world); hit.userData.id = o.id; L.scene.add(hit); L.hits.push(hit);
       }
       L.labels.appendChild(t); o._tag = t;
     });
   });
+  if (LV.tierra.oclusor) LV.tierra.hits.push(LV.tierra.oclusor);
   let lvl = "solar", focusObj = null;
   // Si dos nombres se encimarían, gana el objeto enfocado y luego el más grande o brillante
   const rank = o => (focusObj === o ? 1e6 : 0) + (o.enter ? 100 : 0) + (o.deco ? -1 : (o.s || o.R || (o.near ? 0.5 : o.r ? 3 : 1)));
+  const haciaCam = new THREE.Vector3();
   function updateCosmosLabels(w, h) {
     const L = LV[lvl], tanHalf = Math.tan(D2R(camera.fov / 2)), boxes = [];
     const nearSun = lvl !== "galaxy" || camera.position.distanceTo(L.anchor) < 24;
     [...L.objs].sort((a, b) => rank(b) - rank(a)).forEach(o => {
       tmp.copy(o.world).project(camera);
-      let off = tmp.z > 1 || Math.abs(tmp.x) > 1.15 || Math.abs(tmp.y) > 1.15 || (o.near && !nearSun);
+      let off = tmp.z > 1 || Math.abs(tmp.x) > 1.15 || Math.abs(tmp.y) > 1.15 || (o.near && !nearSun)
+        || (o.normal && o.normal.dot(haciaCam.copy(camera.position).normalize()) < 0.2);
       if (!off) {
         const pr = o.r / (camera.position.distanceTo(o.world) * tanHalf) * h / 2;
         const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h - (o.r ? pr + 4 : 0);
@@ -1686,6 +1713,7 @@ const Space = (() => {
   }
   function selectObj(o) {
     focusObj = o; controls.minDistance = LV[lvl].minD;
+    if (o.normal) return flyTo(() => LV[lvl].tgt, () => o.normal.clone().multiplyScalar(o.view), 2.2);
     const dir = camera.position.clone().sub(o.world);
     if (dir.lengthSq() < 1e-6) dir.set(0, 0.4, 1);
     dir.normalize(); dir.y = Math.max(dir.y, 0.35); dir.normalize();
@@ -1803,6 +1831,7 @@ const Space = (() => {
       tmp.copy(focus.world).sub(last);
       camera.position.add(tmp); controls.target.add(tmp);
     }
+    if (LV[lvl].update) LV[lvl].update(dt);
     controls.update();
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);
@@ -1819,7 +1848,14 @@ const Space = (() => {
     setPlaying(p) { playing = p; },
     today() { simDays = daysNow(); },
     date() { return new Date(J2000 + simDays * 86400000); },
-    setInset(x, y) { inset = { x, y }; applyOffset(); }
+    setInset(x, y) { inset = { x, y }; applyOffset(); },
+    tierra: { partida: partidaTierra, fallo: !!LV.tierra.fallo, setCapa(n, on) { if (LV.tierra.setCapa) LV.tierra.setCapa(n, on); } },
+    // Vuela sobre un punto del globo (vector unitario desde el centro de la Tierra)
+    apuntar(n, dist = 24) {
+      if (lvl !== "tierra") return;
+      focusObj = null; controls.minDistance = LV.tierra.minD;
+      flyTo(() => LV.tierra.tgt, () => n.clone().multiplyScalar(dist), 2);
+    }
   };
   addEventListener("resize", resize);
   resize(); place();
@@ -1833,7 +1869,9 @@ const Space = (() => {
 (() => {
   const $ = id => document.getElementById(id);
   const FAR = Object.entries(COSMOS).flatMap(([lv, list]) => list.map(o => Object.assign(o, { lv })));
-  const byId = Object.fromEntries([...BODIES, ...CONSTS, ...FAR].map(b => [b.id, b]));
+  // Continentes de la escala "La Tierra" (poblacion/datos.js); vacío si la simulación no cargó
+  const TIERRA = typeof HISTORIA !== "undefined" && !Space.tierra.fallo ? HISTORIA.continentes.map(c => Object.assign(c, { lv: "tierra" })) : [];
+  const byId = Object.fromEntries([...BODIES, ...CONSTS, ...FAR, ...TIERRA].map(b => [b.id, b]));
   const sheet = $("sheet"), dock = $("bodies");
   const fmt = (n, d = 1) => n.toLocaleString("es", { maximumFractionDigits: d });
   const mobile = () => innerWidth <= 760;
@@ -1842,7 +1880,8 @@ const Space = (() => {
   const NOTES = {
     stars: "Las estrellas están en su dirección y distancia reales alrededor del Sol. El tamaño de cada brillo indica cuánta luz da, no su tamaño real.",
     galaxy: "La forma de la galaxia es una recreación: no podemos fotografiar la Vía Láctea desde fuera porque estamos dentro de ella.",
-    group: "Las galaxias están en su dirección y distancia aproximadas, y sus tamaños están a la misma escala que las distancias."
+    group: "Las galaxias están en su dirección y distancia aproximadas, y sus tamaños están a la misma escala que las distancias.",
+    tierra: "Las fechas de tu humanidad salen de la simulación; las reales, de la arqueología y la genética. Cada partida es distinta."
   };
   const scaleOf = id => SCALES.find(s => s.id === id);
   // Astros con retrato renderizado en Blender (renders/<id>.webp)
@@ -1852,7 +1891,7 @@ const Space = (() => {
 
   // El muelle muestra los objetos de la escala activa
   function buildDock(lv) {
-    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : COSMOS[lv];
+    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : lv === "tierra" ? TIERRA : COSMOS[lv];
     dock.replaceChildren(...list.map(b => {
       const btn = document.createElement("button");
       btn.className = "body-btn"; btn.type = "button"; btn.dataset.id = b.id;
