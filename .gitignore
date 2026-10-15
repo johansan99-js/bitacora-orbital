@@ -1,0 +1,6 @@
+# Texturas originales y renders en PNG (se generan con blender/render_planets.py)
+blender/raw/
+blender/out/
+.venv/
+__pycache__/
+.DS_Store
