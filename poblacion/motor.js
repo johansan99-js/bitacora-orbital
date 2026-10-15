@@ -186,11 +186,124 @@ const Motor = (() => {
       for (const i of tierra) { total += pob[i]; if (innov[i] & INDUSTRIA) totalIndustrial += pob[i]; }
     }
 
+    // --- Gente: crecer, migrar y cruzar el mar ---
+    function vaciar(i) { pob[i] = 0; innov[i] = 0; saber[i] = 0; etapa[i] = VACIA; }
+    function adoptar(i, bits) { innov[i] |= bits; }
+    // Crecimiento logístico exacto hacia la capacidad (estable con pasos largos)
+    function crecer(dt) {
+      for (const i of tierra) {
+        const p = pob[i];
+        if (p <= 0) continue;
+        const e = etapaDe(innov[i]), K = capacidad(i, e);
+        if (K <= 0) { vaciar(i); continue; }
+        const r = P.crecimiento[e] * natalidad;
+        const q = r > 0 ? K / (1 + ((K - p) / p) * Math.exp(-r * dt)) : Math.min(p, K);
+        if (q < P.minimo) vaciar(i); else pob[i] = q;
+      }
+    }
+    const llegan = new Float64Array(N), aporte = new Float64Array(N), origen = new Int32Array(N), pesos = new Float64Array(8);
+    // Una parte de cada celda se muda a las vecinas, más cuanto más llena está y hacia donde hay más espacio
+    function migrar(dt) {
+      for (const i of tierra) { llegan[i] = 0; aporte[i] = 0; }
+      for (const i of tierra) {
+        const p = pob[i];
+        if (p <= 0) continue;
+        const K = capacidad(i, etapaDe(innov[i]));
+        const sale = p * (1 - Math.exp(-(P.exploracion + P.presion * Math.min(1, p / K)) * dt));
+        if (sale < P.minimo) continue;
+        let suma = 0;
+        for (let k = 0; k < 8; k++) {
+          const j = vecinas[i * 8 + k];
+          pesos[k] = 0;
+          if (j < 0 || base[j] <= 0) continue;
+          const Kj = capacidad(j, etapaDe(aptas(innov[i] | innov[j], j)));
+          if (Kj <= 0) continue;
+          pesos[k] = Math.max(Kj - pob[j], 0) + 0.01 * Kj;
+          suma += pesos[k];
+        }
+        // Grupos de menos de `minimo` personas no se van
+        for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < P.minimo) { suma -= pesos[k]; pesos[k] = 0; }
+        if (suma <= 0) continue;
+        pob[i] -= sale;
+        for (let k = 0; k < 8; k++) if (pesos[k] > 0) {
+          const j = vecinas[i * 8 + k], v = sale * pesos[k] / suma;
+          llegan[j] += v;
+          if (v > aporte[j]) { aporte[j] = v; origen[j] = i; }
+        }
+      }
+      for (const i of tierra) {
+        if (llegan[i] <= 0) continue;
+        // Si los recién llegados son mayoría, traen su forma de vida (agricultores que desplazan a recolectores)
+        if (llegan[i] > pob[i]) adoptar(i, aptas(innov[origen[i]], i));
+        pob[i] += llegan[i];
+      }
+    }
+    const visita = new Int32Array(N), cola = new Int32Array(N), dist = new Uint8Array(N), candidatas = [];
+    let sello = 0;
+    // Tierra habitable alcanzable cruzando hasta `alcance` celdas de agua (sin contar la costa de partida)
+    function destinoPorMar(i, alcance) {
+      sello++; candidatas.length = 0;
+      let a = 0, b = 0;
+      cola[b++] = i; visita[i] = sello; dist[i] = 0;
+      while (a < b) {
+        const c = cola[a++];
+        for (let k = 0; k < 8; k++) {
+          const j = vecinas[c * 8 + k];
+          if (j < 0 || visita[j] === sello) continue;
+          visita[j] = sello;
+          if (bio[j] === MAR) { if (dist[c] < alcance) { dist[j] = dist[c] + 1; cola[b++] = j; } }
+          else if (c !== i && capacidad(j, RECOLECTORES) > 0) candidatas.push(j);
+        }
+      }
+      return candidatas.length ? candidatas[Math.floor(rnd() * candidatas.length)] : -1;
+    }
+    function cruzarMar(dt) {
+      for (const i of costeras) {
+        if (pob[i] < P.establecida) continue;
+        const nivel = innov[i] & ALTURA ? 2 : innov[i] & COSTERA ? 1 : 0;
+        if (rnd() >= 1 - Math.exp(-P.cruce[nivel] * cruceMult * dt)) continue;
+        const j = destinoPorMar(i, P.alcance[nivel]);
+        if (j < 0) continue;
+        const grupo = Math.min(Math.max(pob[i] * 0.05, 2 * P.minimo), 500, pob[i] / 2);
+        pob[i] -= grupo;
+        if (pob[j] <= 0) innov[j] = 0;
+        adoptar(j, aptas(innov[i], j));   // el contacto también lleva las innovaciones
+        pob[j] += grupo;
+      }
+    }
+
+    // --- Hitos ---
+    const regionHito = historia.regiones.map(r => r.hito || null);
+    const africa = historia.regiones.findIndex(r => r.id === "africa");
+    function hito(id, i) {
+      if (hechos.has(id)) return;
+      hechos.add(id);
+      const h = { id, año: Math.round(año), celda: i };
+      logros.push(h);
+      oyentes.forEach(fn => fn(h));
+    }
+    let empezoConGente = false;
+    function revisarHitos() {
+      for (const i of tierra) {
+        if (pob[i] < P.establecida || region[i] < 0) continue;
+        if (region[i] !== africa) hito("salida_africa", i);
+        if (regionHito[region[i]]) hito(regionHito[region[i]], i);
+      }
+      if (total >= 1e9) hito("mil_millones", -1);
+      if (total >= 8e9) hito("ocho_mil_millones", -1);
+      if (total <= 0 && empezoConGente) { hito("extincion", -1); fin = true; }
+    }
+
     // --- Paso del tiempo ---
     function paso(dt) {
       año += dt;
       actualizarClima();
+      crecer(dt);
+      migrar(dt);
+      cruzarMar(dt);
+      for (const i of tierra) etapa[i] = pob[i] > 0 ? etapaDe(innov[i]) : VACIA;
       contar();
+      revisarHitos();
     }
     function avanzar(años) {
       let resto = Math.min(años, historia.presente - año);
@@ -206,6 +319,7 @@ const Motor = (() => {
     for (const o of historia.origenes) pob[celdaDe(o.lat, o.lon)] += o.personas;
     for (const i of tierra) etapa[i] = pob[i] > 0 ? RECOLECTORES : VACIA;
     contar();
+    empezoConGente = total > 0;
 
     return {
       semilla,
