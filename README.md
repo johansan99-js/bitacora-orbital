@@ -22,7 +22,7 @@ python3 -m http.server 8000
 
 y abre <http://localhost:8000>. Necesita internet para cargar three.js y las fuentes.
 
-Para publicarlo gratis en internet, activa **GitHub Pages** en *Settings → Pages* (rama `main`, carpeta raíz).
+Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/` y `renders/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez.
 
 ## Estructura
 
