@@ -43,6 +43,9 @@ test("un hito pausa la partida y los hitos del mismo cuadro quedan en orden", ()
   p.alEvento(e => eventos.push(e.tipo));
   p.paso(1);
   assert.equal(p.reproduciendo(), false);
+  assert.equal(p.motor().año(), -19990);   // la pausa detiene el reloj en el paso del hito
+  assert.equal(p.paso(1), 0);
+  assert.equal(p.motor().año(), -19990);
   assert.deepEqual(p.pendientes().map(x => x.id), ["salida_africa", "b", "c"]);
   assert.equal(eventos.filter(t => t === "hito").length, 3);
   assert.equal(p.tomarHito().id, "salida_africa");
@@ -87,4 +90,16 @@ test("si la humanidad se extingue, la partida avisa y termina", () => {
   assert.ok(p.pendientes().some(x => x.id === "extincion"));
   assert.equal(p.terminada(), true);
   assert.ok(eventos.includes("fin"));
+});
+
+test("la historia no depende de los cuadros por segundo", () => {
+  const h = conGente({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const mundo = () => mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 });
+  const op = { semilla: 5, params: { cruce: [0.01, 0.01, 0.01] }, pausarEnHitos: false, presupuestoMs: Infinity };
+  const grande = Partida.crear(mundo(), h, op);
+  grande.paso(0.5);                                    // 500 años en un solo cuadro
+  const chicos = Partida.crear(mundo(), h, op);
+  for (let k = 0; k < 500; k++) chicos.paso(0.001);   // los mismos 500 años en cuadros de 1 año
+  assert.equal(chicos.motor().año(), grande.motor().año());
+  assert.deepEqual(Array.from(chicos.motor().celdas.poblacion), Array.from(grande.motor().celdas.poblacion));
 });

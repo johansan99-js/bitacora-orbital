@@ -15,11 +15,11 @@ const Partida = (() => {
     const reloj = opciones.reloj ?? (() => performance.now());
     const oyentes = [];
     const emitir = e => oyentes.forEach(fn => fn(e));
-    let motor, jugando = true, mult = 2, cola = [], finAvisado = false;
+    let motor, jugando = true, mult = 2, cola = [], debe = 0;
 
     function nueva(semilla) {
       motor = MotorRef.crear(mundo, historia, { semilla, params: opciones.params });
-      cola = []; finAvisado = false; jugando = true;
+      cola = []; jugando = true; debe = 0;
       motor.alHito(h => {
         cola.push(h);
         if (opciones.pausarEnHitos !== false) jugando = false;
@@ -29,19 +29,25 @@ const Partida = (() => {
     }
     const añosPorSegundo = () => MotorRef.tramo(historia.velocidades, motor.año()) * MULTIPLICADORES[mult];
 
+    // El motor siempre avanza en pasos completos, los mismos que en la calibración, así la historia no depende de los
+    // cuadros por segundo ni de la velocidad: los años pedidos se acumulan en `debe` y el resto queda para el cuadro siguiente.
     function paso(dt) {
       if (!jugando || motor.terminado()) return 0;
-      const meta = Math.min(dt * añosPorSegundo(), historia.presente - motor.año());
+      const pedido = dt * añosPorSegundo();
+      debe = Math.min(debe + pedido, Math.max(pedido, 10 * motor.pasoMax()));   // sin atraso infinito si la máquina no da abasto
       const t0 = reloj();
       let hecho = 0;
-      // Al menos un paso por cuadro; después, solo mientras quede presupuesto de tiempo
-      do {
-        const d = Math.min(meta - hecho, motor.pasoMax());
-        if (d <= 0) break;
+      // Al menos un paso si alcanza; después, solo mientras quede presupuesto de tiempo
+      while (jugando && !motor.terminado()) {
+        const d = Math.min(motor.pasoMax(), historia.presente - motor.año());
+        if (debe < d - 1e-6) break;
         motor.avanzar(d);
+        debe -= d;
         hecho += d;
-      } while (meta - hecho > 1e-6 && jugando && reloj() - t0 < presupuestoMs);
-      if (motor.terminado() && !finAvisado) { finAvisado = true; jugando = false; emitir({ tipo: "fin" }); }
+        if (reloj() - t0 >= presupuestoMs) break;
+      }
+      if (!jugando) debe = 0;   // tras una pausa por hito no se arrastra el resto
+      if (motor.terminado()) { jugando = false; debe = 0; emitir({ tipo: "fin" }); }
       return hecho;
     }
 
@@ -53,9 +59,12 @@ const Partida = (() => {
       añosPorSegundo,
       reproduciendo: () => jugando,
       setReproduciendo(b) { jugando = !!b && !motor.terminado(); emitir({ tipo: "pausa" }); return jugando; },
-      velocidad(i) { mult = Math.min(MULTIPLICADORES.length - 1, Math.max(0, Math.round(i))); },
+      velocidad(i) { if (Number.isFinite(i)) mult = Math.min(MULTIPLICADORES.length - 1, Math.max(0, Math.round(i))); },
       textoAño: (año = motor.año()) => textoAño(año, historia.presente),
-      textoVelocidad: () => `${añosPorSegundo().toLocaleString("es", { maximumFractionDigits: 1 })} años/s`,
+      textoVelocidad() {
+        const n = añosPorSegundo().toLocaleString("es", { maximumFractionDigits: 1 });
+        return `${n} ${n === "1" ? "año" : "años"}/s`;
+      },
       pendientes: () => cola.slice(),
       tomarHito: () => cola.shift() || null,
       terminada: () => motor.terminado(),
