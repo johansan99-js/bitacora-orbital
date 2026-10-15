@@ -310,6 +310,80 @@ const Motor = (() => {
       if (total <= 0 && empezoConGente) { hito("extincion", -1); fin = true; }
     }
 
+    // --- Innovaciones: aparecen según densidad, conexiones y saber (nunca por un tiempo fijo) y se contagian ---
+    const probPor = (tasa, dt) => 1 - Math.exp(-tasa * dt);
+    function vecinasCon(i, bit) {
+      let n = 0;
+      for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && (innov[j] & bit)) n++; }
+      return n;
+    }
+    function puedeAdoptar(bit, v, i, apta) {
+      if (bit === COSTERA) return costa[i] === 1;
+      if (bit === ALTURA) return costa[i] === 1 && (v & COSTERA) !== 0;
+      if (bit === AGRICULTURA) return apta;
+      if (!apta || !(v & AGRICULTURA)) return false;
+      return bit !== ESCRITURA || (v & CIUDADES) !== 0;
+    }
+    // Saber: crece con la gente (más personas, más ideas; Kremer 1993) y se iguala con el de las vecinas agrícolas
+    function acumularSaber(i, v, dt) {
+      const escribe = (v & ESCRITURA) !== 0;
+      let s = saber[i] + dt * P.ritmoSaber * (pob[i] / 1e6) * (escribe ? P.escrituraSaber : 1);
+      let suma = 0, n = 0;
+      for (let k = 0; k < 8; k++) {
+        const j = vecinas[i * 8 + k];
+        if (j >= 0 && pob[j] > 0 && (innov[j] & AGRICULTURA)) { suma += saber[j]; n++; }
+      }
+      if (n) s += (suma / n - s) * probPor(P.difusionSaber * (escribe ? P.contagioEscritura : 1), dt);
+      saber[i] = s;
+    }
+    function innovar(dt) {
+      const fracInd = total > 0 ? totalIndustrial / total : 0;
+      for (const i of tierra) {
+        const p = pob[i];
+        if (p <= 0) continue;
+        let v = innov[i];
+        const apta = aptaAgricultura(i);
+        if (v & AGRICULTURA) acumularSaber(i, v, dt);
+        if (!(v & COSTERA) && costa[i] && rnd() < probPor(P.costera * p / 1000, dt)) v |= COSTERA;
+        if (!(v & AGRICULTURA) && apta && año >= historia.holoceno && domestica[i] >= 0) {
+          const d = historia.domesticables[domestica[i]];
+          const llena = Math.min(1, Math.max(0, (p / capacidad(i, RECOLECTORES) - P.llenaAgricultura) / (1 - P.llenaAgricultura)));
+          if (llena > 0 && rnd() < probPor(P.agricultura * d.riqueza * llena, dt)) { v |= AGRICULTURA; hito(`agricultura_${d.id}`, i); }
+        }
+        if ((v & AGRICULTURA) && !(v & CIUDADES)) {
+          const exceso = Math.min(1, Math.max(0, p / base[i] / P.densidadCiudad - 1));
+          if (exceso > 0 && rnd() < probPor(P.ciudades * exceso * vecinasCon(i, AGRICULTURA) / 8, dt)) { v |= CIUDADES; hito("primera_ciudad", i); }
+        }
+        if ((v & CIUDADES) && !(v & ESCRITURA)) {
+          const red = vecinasCon(i, CIUDADES) - P.vecinosEscritura + 1;
+          if (red > 0 && rnd() < probPor(P.escritura * red, dt)) { v |= ESCRITURA; hito("escritura", i); }
+        }
+        if ((v & COSTERA) && (v & AGRICULTURA) && !(v & ALTURA) && costa[i]) {
+          const s = Math.min(1, saber[i] / P.saberAltura);
+          if (s > 0 && rnd() < probPor(P.altura * s, dt)) v |= ALTURA;
+        }
+        if ((v & ESCRITURA) && !(v & INDUSTRIA)) {
+          const exceso = Math.min(1, Math.max(0, saber[i] / P.saberIndustria - 1));
+          if (exceso > 0 && rnd() < probPor(P.industria * exceso, dt)) { v |= INDUSTRIA; hito("industria", i); }
+        }
+        // Contagio desde las vecinas (más rápido con escritura) y, para la industria, desde todo el mundo agrícola
+        let union = 0;
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0) union |= innov[j]; }
+        const global = fracInd > 0 && apta && (v & AGRICULTURA) && !(v & INDUSTRIA);
+        if ((union & ~v) || global) {
+          const mult = v & ESCRITURA ? P.contagioEscritura : 1;
+          for (const bit of BITS) {
+            if ((v & bit) || !puedeAdoptar(bit, v, i, apta)) continue;
+            let tasa = union & bit ? P.contagio[bit] * vecinasCon(i, bit) * mult : 0;
+            if (bit === INDUSTRIA) tasa += P.industriaGlobal * fracInd;
+            if (tasa > 0 && rnd() < probPor(tasa, dt)) v |= bit;
+          }
+        }
+        innov[i] = v;
+        etapa[i] = etapaDe(v);
+      }
+    }
+
     // --- Paso del tiempo ---
     function paso(dt) {
       año += dt;
@@ -317,7 +391,7 @@ const Motor = (() => {
       crecer(dt);
       migrar(dt);
       cruzarMar(dt);
-      for (const i of tierra) etapa[i] = pob[i] > 0 ? etapaDe(innov[i]) : VACIA;
+      innovar(dt);
       contar();
       revisarHitos();
     }
