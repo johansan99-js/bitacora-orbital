@@ -11,6 +11,7 @@ Explorador 3D del universo en español, hecho para aprender astronomía. Funcion
 - **10 constelaciones** en su posición real del cielo.
 - **Fichas** con datos, tiempo que tarda la luz y tu peso en cada mundo.
 - **Misiones espaciales** (de Sputnik a Dragonfly) y un **cuestionario** con 3 niveles.
+- **La Tierra habitada**: la humanidad nace hace 300.000 años en África y se extiende sola por el planeta, con glaciaciones, puentes de tierra, agricultura, ciudades e industria. Cada hito se compara con su fecha real y su fuente.
 
 ## Cómo abrirlo
 
@@ -22,7 +23,7 @@ python3 -m http.server 8000
 
 y abre <http://localhost:8000>. Necesita internet para cargar three.js y las fuentes.
 
-Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/` y `renders/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez.
+Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/` y `poblacion/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez.
 
 ## Estructura
 
@@ -31,6 +32,9 @@ Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pag
 | `index.html` | Toda la app: estilos, datos (planetas, lunas, estrellas, galaxias, cuestionario, misiones) y la escena 3D con three.js r128 |
 | `tex/` | Texturas de los planetas, optimizadas para la web |
 | `renders/` | Retratos de cada astro (WebP), hechos con Blender |
+| `poblacion/` | La Tierra habitada: mapa en celdas (`mundo.js`, generado), datos reales con fuentes (`datos.js`), motor de la simulación, reloj de la partida, vista 3D y panel |
+| `herramientas/generar_mundo.py` | Genera `poblacion/mundo.js` a partir de las texturas de la Tierra |
+| `pruebas/` | Pruebas del motor y la partida, y la calibración contra la historia real |
 | `blender/render_planets.py` | Script que genera los retratos |
 | `blender/descargar_texturas.sh` | Descarga las texturas originales que usa el script |
 
@@ -49,6 +53,26 @@ blender/descargar_texturas.sh
 ```
 
 Salen en PNG de 720 × 720 con fondo transparente (unos 20 segundos por astro en CPU). Para la web se convierten a WebP de 460 × 460, por ejemplo con Pillow.
+
+## La Tierra habitada: pruebas y calibración
+
+El motor (`poblacion/motor.js`) no usa el navegador, así que se prueba con Node 24:
+
+```bash
+node --test "pruebas/*.test.mjs"
+```
+
+La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana o si menos del 80 % de las partidas llega a la industria):
+
+```bash
+node pruebas/calibrar.mjs
+```
+
+Si cambian las texturas de la Tierra, hay que regenerar el mapa (requiere Pillow):
+
+```bash
+python herramientas/generar_mundo.py
+```
 
 ## Créditos
 

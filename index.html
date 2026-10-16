@@ -315,7 +315,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 .t-lista b { font-size: 15px; }
 .t-lista .t-comp { font-family: var(--f-mono); font-size: 12.5px; color: #c4cbe0; }
 .t-lista .no { color: var(--muted); }
-.zoom { top: max(50%, 390px); }   /* en pantallas bajas la tarjeta no tapa la escalera de escalas; en celular la regla móvil la reemplaza */
+.zoom { top: min(max(50%, 390px), calc(100dvh - 140px)); }   /* en pantallas bajas la tarjeta no tapa la escalera de escalas; en celular la regla móvil la reemplaza */
 @media (max-width: 760px) {
   .t-card { left: auto; right: 16px; top: calc(124px + env(safe-area-inset-top, 0px)); width: 190px; padding: 10px 12px; font-size: 11.5px; }
   .t-hito { bottom: calc(132px + env(safe-area-inset-bottom, 0px)); padding: 14px 16px; }

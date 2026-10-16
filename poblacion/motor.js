@@ -42,7 +42,7 @@ const Motor = (() => {
     industria: 0.5,          // aparición de la industria por año con saber al doble del umbral
     saberIndustria: 19500,   // saber desde el que puede aparecer la industria
     ritmoSaber: 13.3,        // saber ganado por año por cada millón de personas agrícolas
-    escrituraSaber: 1,       // la escritura multiplica el saber ganado
+    escrituraSaber: 1,       // multiplicador del saber ganado con escritura (1 = sin efecto; la escritura actúa por contagioEscritura)
     difusionSaber: 0.002,    // ritmo con el que el saber se iguala con el de las vecinas
     saberIntensifica: 5000,  // cada tantos puntos de saber, la capacidad agrícola y urbana sube un 100 %
     saberMax: 3,             // tope de esa subida (capacidad ×4)
