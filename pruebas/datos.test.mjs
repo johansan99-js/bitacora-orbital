@@ -45,7 +45,7 @@ test("los orígenes están en tierra firme", () => {
 });
 
 test("todas las cajas tienen coordenadas válidas", () => {
-  const cajas = [...H.regiones, ...H.domesticables, ...H.rios, ...H.puentes, ...H.hielo].flatMap(x => x.cajas).concat(H.humedos.cajas);
+  const cajas = [...H.regiones, ...H.domesticables, ...H.rios, ...H.puentes, ...H.hielo, ...H.arcaicos].flatMap(x => x.cajas).concat(H.humedos.cajas);
   for (const [a, b, c, d] of cajas) {
     assert.ok(a <= b && a >= -90 && b <= 90);
     assert.ok(c >= -180 && d <= 180);
@@ -57,4 +57,12 @@ test("ningún puente de tierra cruza la línea de Wallace", () => {
   const dentro = ([a, b, c, d], la, lo) => a <= la && la <= b && c <= lo && lo <= d;
   for (const [la, lo] of [[-1, 119], [-3, 117], [-7, 117]])
     for (const p of H.puentes) for (const caja of p.cajas) assert.ok(!dentro(caja, la, lo), `${p.id} ${la},${lo}`);
+});
+
+test("los humanos arcaicos tienen fuente y cajas, y Arabia cuenta como origen", () => {
+  for (const a of H.arcaicos) {
+    assert.ok(a.id && a.nombre && a.fuente && a.cajas.length, a.id);
+    if (a.hito) assert.ok(H.hitos.some(h => h.id === a.hito), a.hito);
+  }
+  assert.deepEqual(H.regiones.filter(r => r.origen).map(r => r.id).sort(), ["africa", "arabia"]);
 });

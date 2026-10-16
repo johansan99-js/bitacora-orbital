@@ -57,7 +57,7 @@ test("si el hielo cubre a toda la humanidad, la partida termina con el hito de e
 test("la misma semilla repite la partida y otra semilla la cambia", () => {
   const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
   const jugar = semilla => {
-    const m = Motor.crear(mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 }), h, { semilla, params: { cruce: [0.01, 0.01, 0.01] } });
+    const m = Motor.crear(mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 }), h, { semilla, params: { cruce: [0.01, 0.01, 0.01], saberMar: 0 } });
     m.avanzar(400);
     return Array.from(m.celdas.poblacion).join();
   };
@@ -88,7 +88,7 @@ test("un estrecho que nunca se secó solo se cruza por mar", () => {
   const caminando = Motor.crear(mundo(), h, { params: { ...SIN_AZAR, exploracion: 0.01 } });
   caminando.avanzar(5000);
   assert.equal(caminando.celdas.poblacion[caminando.celdaDe(0, 0)], 0);
-  const navegando = Motor.crear(mundo(), h, { semilla: 3, params: { costera: 0, exploracion: 0.01, cruce: [0.01, 0.01, 0.01] } });
+  const navegando = Motor.crear(mundo(), h, { semilla: 3, params: { costera: 0, exploracion: 0.01, cruce: [0.01, 0.01, 0.01], saberMar: 0 } });
   navegando.avanzar(5000);
   assert.ok(navegando.celdas.poblacion[navegando.celdaDe(0, 0)] > 0);
 });

@@ -103,8 +103,10 @@ const HISTORIA = (() => {
     // Regiones para los hitos de llegada. Gana la primera caja que contiene el centro de la celda.
     // Las cajas se dibujaron a mano sobre el mapa de 2° y son aproximadas.
     regiones: [
-      { id: "asia_occ", nombre: "Asia occidental", hito: null, cajas: [[36, 42, 26, 50], [29, 36, 34.5, 63], [21, 29, 37, 63], [15, 21, 41, 63], [12, 15, 43, 63]] },
-      { id: "africa", nombre: "África", hito: null, cajas: [[-36, 35, -20, 52], [35, 38, -2, 11.5]] },
+      // Arabia cuenta como África para la salida: el hito es "fuera de África y Arabia"
+      { id: "arabia", nombre: "Arabia", hito: null, origen: true, cajas: [[21, 29, 37, 50], [21, 24, 50, 60], [15, 21, 41, 60], [12, 15, 43, 60]] },
+      { id: "asia_occ", nombre: "Asia occidental", hito: null, cajas: [[36, 42, 26, 50], [29, 36, 34.5, 63], [24, 29, 50, 63], [12, 24, 60, 63]] },
+      { id: "africa", nombre: "África", hito: null, origen: true, cajas: [[-36, 35, -20, 52], [35, 38, -2, 11.5]] },
       { id: "europa", nombre: "Europa", hito: "europa", cajas: [[35, 52, -25, 50], [52, 72, -25, 60]] },
       { id: "sahul", nombre: "Australia y Nueva Guinea", hito: "sahul", cajas: [[-45, -10, 112, 155], [-11, -1, 130, 152]] },
       { id: "nueva_zelanda", nombre: "Nueva Zelanda", hito: "nueva_zelanda", cajas: [[-48, -34, 165, 179]] },
@@ -121,7 +123,17 @@ const HISTORIA = (() => {
     barreras: [
       { entre: ["africa", "europa"] },
       { entre: ["africa", "asia_occ"], latMax: 26 },
-      { entre: ["asia", "norteamerica"] }
+      { entre: ["asia", "norteamerica"] },
+      { entre: ["africa", "arabia"], latMax: 26 }
+    ],
+
+    // Humanos arcaicos que ya vivían en Eurasia cuando llegó nuestra especie (cambio del 2026-10-15).
+    // Cajas aproximadas trazadas a mano sobre el mapa de 2°: ocupan su territorio desde el inicio de la partida.
+    arcaicos: [
+      { id: "neandertales", nombre: "Neandertales", hito: "neandertales", cajas: [[36, 56, -10, 60], [29, 42, 34.5, 62], [36, 54, 60, 90]],
+        fuente: "Krause et al. (2007), Nature 449 (Altái); sitios del Levante (Tabun, Kebara) y del Zagros (Shanidar)" },
+      { id: "denisovanos", nombre: "Denisovanos", hito: null, cajas: [[22, 55, 90, 145]],
+        fuente: "Reich et al. (2010), Nature 468 (cueva de Denisova); Chen et al. (2019), Nature 569 (Xiahe, Tíbet)" }
     ],
 
     // Origen panafricano: varios grupos en distintos puntos de África
@@ -145,6 +157,9 @@ const HISTORIA = (() => {
       { id: "europa", titulo: "Tu humanidad llegó a Europa", corto: "Llegada a Europa", real: hace(54000, 45000),
         texto: "Grotte Mandrin (Francia) muestra Homo sapiens hace unos 54.000 años y Bacho Kiro (Bulgaria), hace unos 45.000. Allí convivieron miles de años con los neandertales.",
         fuente: "Slimak et al. (2022), Science Advances 8; Hublin et al. (2020), Nature 581" },
+      { id: "neandertales", titulo: "Desaparecieron los neandertales", corto: "Desaparición de los neandertales", real: hace(41000, 39000),
+        texto: "Los últimos neandertales desaparecieron de Europa hace unos 41.000–39.000 años, después de miles de años de convivencia con nuestra especie. Casi toda la humanidad no africana conserva entre un 1 y un 2 % de ADN neandertal.",
+        fuente: "Higham et al. (2014), Nature 512" },
       { id: "norteamerica", titulo: "Tu humanidad llegó a Norteamérica", corto: "Llegada a Norteamérica", real: hace(23000, 15000),
         texto: "Las huellas humanas de White Sands (Nuevo México) tienen unos 23.000–21.000 años; muchos sitios de Norteamérica tienen entre 16.000 y 14.000.",
         fuente: "Bennett et al. (2021), Science 373" },
@@ -217,7 +232,7 @@ const HISTORIA = (() => {
         lede: "Llegaron desde Asia occidental y encontraron a los neandertales, que vivían allí desde hacía cientos de miles de años.",
         facts: ["Los Homo sapiens más antiguos de Europa ampliamente aceptados tienen entre 54.000 y 45.000 años.",
           "Allí convivieron miles de años con los neandertales."] },
-      { id: "c-asia", nombre: "Asia", tipo: "Continente", lat: 40, lon: 95, color: "#ff9f6b", regiones: ["asia_occ", "asia"], hitos: ["salida_africa", "asia"], stats: [],
+      { id: "c-asia", nombre: "Asia", tipo: "Continente", lat: 40, lon: 95, color: "#ff9f6b", regiones: ["arabia", "asia_occ", "asia"], hitos: ["salida_africa", "asia"], stats: [],
         lede: "El continente más grande fue el primer paso fuera de África y la ruta hacia Oceanía y América.",
         facts: ["La salida principal de África ocurrió hace unos 70.000–50.000 años, aunque hubo salidas anteriores.",
           "En China surgió la agricultura del mijo y del arroz hace unos 10.000–8.000 años."] },

@@ -28,7 +28,7 @@ const Motor = (() => {
     establecida: 100,        // gente necesaria para que una llegada cuente como hito
     exploracion: 0.002,      // fracción que se va por año aunque haya espacio
     presion: 0.004,          // fracción extra por año cuando la celda está llena
-    cruce: [0.00002, 0.0001, 0.0002],   // probabilidad por año de cruzar el mar desde una costa: sin navegación, costera, de altura
+    cruce: [0.0002, 0.0005, 0.0005],   // probabilidad por año de cruzar el mar desde una costa: sin navegación, costera, de altura
     alcance: [1, 2, 20],     // celdas de agua que se pueden cruzar en cada caso
     costera: 2e-7,           // aparición de la navegación costera, por año y por cada 1.000 personas en la costa
     agricultura: 0.0002,     // aparición de la agricultura por año en una celda llena de una región con domesticables
@@ -48,7 +48,17 @@ const Motor = (() => {
     saberMax: 3,             // tope de esa subida (capacidad ×4)
     contagio: { 1: 0.002, 2: 0.004, 4: 0.002, 8: 0.003, 16: 0.002, 32: 0.02 },   // por año y por vecina, según el bit
     contagioEscritura: 3,    // la escritura acelera el contagio y la difusión del saber
-    industriaGlobal: 0.05    // contagio mundial de la industria, multiplicado por la fracción de población industrial
+    industriaGlobal: 0.05,   // contagio mundial de la industria, multiplicado por la fracción de población industrial
+    // Saber de recolectores (cambio del 2026-10-15): crece con la gente y abre el desierto, el mar y el territorio de
+    // los humanos arcaicos. Valores iniciales del estudio de factibilidad; los finales salen de la calibración.
+    ritmoRec: 1,             // saber de recolectores ganado por año por cada millón de personas
+    difRec: 0.002,           // ritmo con el que sube hacia la media de las vecinas
+    ancho: 0.25,             // una compuerta se abre entre el umbral S y S × (1 + ancho)
+    saberDesierto: 1400,     // umbral para vivir en el desierto fuera de los valles de río (0 = sin compuerta)
+    saberMar: 1350,          // umbral para cruzar el mar sin navegación de altura (0 = sin compuerta)
+    saberArcaico: 1550,      // umbral para desplazar a los humanos arcaicos (0 = se retiran enseguida)
+    ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
+    desplaza: 0.005          // ritmo por año con que se retiran los arcaicos ante un saber mayor
   };
 
   function azar(semilla) {
@@ -159,6 +169,10 @@ const Motor = (() => {
     // --- Estado ---
     const pob = new Float64Array(N), innov = new Uint16Array(N), etapa = new Uint8Array(N), saber = new Float32Array(N);
     const hielo = new Uint8Array(N), plataforma = new Uint8Array(N), bio = new Uint8Array(N), base = new Float32Array(N);
+    const sr = new Float32Array(N), sr0 = new Float32Array(N);   // saber de recolectores (y su copia del inicio del paso)
+    // Humanos arcaicos: ocupación (0–1) y especie de cada celda
+    const arc = new Float32Array(N), especie = new Int8Array(N).fill(-1);
+    historia.arcaicos.forEach((a, k) => { for (const i of tierra) if (especie[i] < 0 && enCajas(lat[i], lon[i], a.cajas)) { arc[i] = 1; especie[i] = k; } });
     let año = opciones.inicio ?? historia.inicio, total = 0, totalIndustrial = 0, fin = false;
     let clima = { nivelMar: 0, intensidadGlacial: 0, humedoSahara: false, puentesAbiertos: [] };
     const oyentes = [], logros = [], hechos = new Set();
@@ -188,10 +202,15 @@ const Motor = (() => {
     const etapaDe = bits => bits & INDUSTRIA ? INDUSTRIAL : bits & CIUDADES ? URBANA : bits & AGRICULTURA ? AGRICULTORES : RECOLECTORES;
     // Lo agrícola solo sirve donde se puede cultivar; la navegación se conserva en cualquier lado
     const aptas = (bits, j) => aptaAgricultura(j) ? bits : bits & (COSTERA | ALTURA);
-    function capacidad(i, e) {
+    // Compuerta en rampa: cerrada bajo el umbral S, abierta del todo en S × (1 + ancho); un umbral 0 la deja abierta
+    const rampa = (s, S) => S > 0 ? Math.min(1, Math.max(0, (s - S) / (P.ancho * S))) : 1;
+    // El desierto fuera de los valles de río solo alimenta recolectores con saber suficiente (también en los periodos húmedos)
+    const puerta = (i, s) => bioma0[i] === DESIERTO && !rio[i] ? rampa(s, P.saberDesierto) : 1;
+    function capacidad(i, e, s = sr[i]) {
       if (base[i] <= 0) return 0;
       let k = base[i] * P.densidad[e][bio[i]];
       if (e === RECOLECTORES && costa[i]) k *= P.costa;
+      if (e === RECOLECTORES) k *= puerta(i, s) * (1 - P.ocupaArcaico * arc[i]);   // compuerta y territorio arcaico
       if (e === AGRICULTORES || e === URBANA) k *= 1 + Math.min(saber[i] / P.saberIntensifica, P.saberMax);
       return k;
     }
@@ -201,7 +220,7 @@ const Motor = (() => {
     }
 
     // --- Gente: crecer, migrar y cruzar el mar ---
-    function vaciar(i) { pob[i] = 0; innov[i] = 0; saber[i] = 0; etapa[i] = VACIA; }
+    function vaciar(i) { pob[i] = 0; innov[i] = 0; saber[i] = 0; sr[i] = 0; etapa[i] = VACIA; }
     function adoptar(i, bits) { innov[i] |= bits; }
     // Crecimiento logístico exacto hacia la capacidad (estable con pasos largos)
     function crecer(dt) {
@@ -215,11 +234,11 @@ const Motor = (() => {
         if (q < P.minimo) vaciar(i); else pob[i] = q;
       }
     }
-    const llegan = new Float64Array(N), salen = new Float64Array(N), aporte = new Float64Array(N), traen = new Uint16Array(N), pesos = new Float64Array(8);
+    const llegan = new Float64Array(N), llegaS = new Float64Array(N), salen = new Float64Array(N), aporte = new Float64Array(N), traen = new Uint16Array(N), pesos = new Float64Array(8);
     // Una parte de cada celda se muda a las vecinas, más cuanto más llena está y hacia donde hay más espacio.
     // Todo se calcula con la población del inicio del paso y se aplica al final, así el orden de las celdas no influye.
     function migrar(dt) {
-      for (const i of tierra) { llegan[i] = 0; salen[i] = 0; aporte[i] = 0; }
+      for (const i of tierra) { llegan[i] = 0; llegaS[i] = 0; salen[i] = 0; aporte[i] = 0; }
       for (const i of tierra) {
         const p = pob[i];
         if (p <= 0) continue;
@@ -231,7 +250,7 @@ const Motor = (() => {
           const j = vecinas[i * 8 + k];
           pesos[k] = 0;
           if (j < 0 || base[j] <= 0) continue;
-          const Kj = capacidad(j, etapaDe(aptas(innov[i] | innov[j], j)));
+          const Kj = capacidad(j, etapaDe(aptas(innov[i] | innov[j], j)), Math.max(sr[j], sr[i]));
           if (Kj <= 0) continue;
           pesos[k] = Math.max(Kj - pob[j], 0) + 0.01 * Kj;
           suma += pesos[k];
@@ -243,12 +262,15 @@ const Motor = (() => {
         for (let k = 0; k < 8; k++) if (pesos[k] > 0) {
           const j = vecinas[i * 8 + k], v = sale * pesos[k] / suma;
           llegan[j] += v;
+          llegaS[j] += v * sr[i];
           if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(innov[i], j); }
         }
       }
       for (const i of tierra) {
         pob[i] -= salen[i];
         if (llegan[i] <= 0) continue;
+        const traido = llegaS[i] / llegan[i];   // saber medio de los que llegan
+        sr[i] = pob[i] <= 0 ? traido : Math.max(sr[i], traido);
         // Si los recién llegados son mayoría, traen su forma de vida (agricultores que desplazan a recolectores)
         if (llegan[i] > pob[i]) adoptar(i, traen[i]);
         pob[i] += llegan[i];
@@ -268,7 +290,7 @@ const Motor = (() => {
           if (j < 0 || visita[j] === sello) continue;
           visita[j] = sello;
           if (bio[j] === MAR) { if (dist[c] < alcance) { dist[j] = dist[c] + 1; cola[b++] = j; } }
-          else if (c !== i && capacidad(j, RECOLECTORES) > 0) candidatas.push(j);
+          else if (c !== i && capacidad(j, RECOLECTORES, sr[i]) > 0) candidatas.push(j);
         }
       }
       return candidatas.length ? candidatas[Math.floor(rnd() * candidatas.length)] : -1;
@@ -277,12 +299,13 @@ const Motor = (() => {
       for (const i of costeras) {
         if (pob[i] < P.establecida) continue;
         const nivel = innov[i] & ALTURA ? 2 : innov[i] & COSTERA ? 1 : 0;
-        if (rnd() >= 1 - Math.exp(-P.cruce[nivel] * cruceMult * dt)) continue;
+        const compuerta = nivel < 2 ? rampa(sr[i], P.saberMar) : 1;   // sin navegación de altura, el mar espera al saber
+        if (rnd() >= 1 - Math.exp(-P.cruce[nivel] * compuerta * cruceMult * dt)) continue;
         const j = destinoPorMar(i, P.alcance[nivel]);
         if (j < 0) continue;
         const grupo = Math.min(Math.max(pob[i] * 0.05, 2 * P.minimo), 500, pob[i] / 2);
         pob[i] -= grupo;
-        if (pob[j] <= 0) innov[j] = 0;
+        if (pob[j] <= 0) { innov[j] = 0; sr[j] = sr[i]; } else sr[j] = Math.max(sr[j], sr[i]);
         adoptar(j, aptas(innov[i], j));   // el contacto también lleva las innovaciones
         pob[j] += grupo;
       }
@@ -290,7 +313,7 @@ const Motor = (() => {
 
     // --- Hitos ---
     const regionHito = historia.regiones.map(r => r.hito || null);
-    const africa = historia.regiones.findIndex(r => r.id === "africa");
+    const origen = historia.regiones.map(r => !!r.origen);
     function hito(id, i) {
       if (hechos.has(id)) return;
       hechos.add(id);
@@ -302,7 +325,8 @@ const Motor = (() => {
     function revisarHitos() {
       for (const i of tierra) {
         if (pob[i] < P.establecida || region[i] < 0) continue;
-        if (region[i] !== africa) hito("salida_africa", i);
+        if (capacidad(i, etapaDe(innov[i])) < P.establecida) continue;   // un desembarco que la celda no sostiene no cuenta
+        if (!origen[region[i]]) hito("salida_africa", i);
         if (regionHito[region[i]]) hito(regionHito[region[i]], i);
       }
       if (total >= 1e9) hito("mil_millones", -1);
@@ -339,13 +363,18 @@ const Motor = (() => {
       saber[i] = s;
     }
     function innovar(dt) {
-      innov0.set(innov); saber0.set(saber);
+      innov0.set(innov); saber0.set(saber); sr0.set(sr);
       const fracInd = total > 0 ? totalIndustrial / total : 0;
       for (const i of tierra) {
         const p = pob[i];
         if (p <= 0) { etapa[i] = VACIA; continue; }
         let v = innov[i];
         const apta = aptaAgricultura(i);
+        // Saber de recolectores: crece con la gente y sube hacia el de las vecinas cuando es mayor
+        let s = sr[i] + dt * P.ritmoRec * (p / 1e6), sumaR = 0, nR = 0;
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0) { sumaR += sr0[j]; nR++; } }
+        if (nR && sumaR / nR > s) s += (sumaR / nR - s) * probPor(P.difRec, dt);
+        sr[i] = s;
         if (v & AGRICULTURA) acumularSaber(i, v, dt);
         if (!(v & COSTERA) && costa[i] && rnd() < probPor(P.costera * p / 1000, dt)) v |= COSTERA;
         if (!(v & AGRICULTURA) && apta && año >= historia.holoceno && domestica[i] >= 0) {
@@ -387,6 +416,26 @@ const Motor = (() => {
       }
     }
 
+    // --- Humanos arcaicos: se retiran donde el saber de recolectores de nuestra especie (en la celda o sus vecinas) supera el suyo ---
+    const conArcaicos = tierra.filter(i => arc[i] > 0);
+    const arcInicial = historia.arcaicos.map((a, k) => conArcaicos.filter(i => especie[i] === k).length);
+    function desplazar(dt) {
+      for (const i of conArcaicos) {
+        if (arc[i] <= 0) continue;
+        let s = pob[i] > 0 ? sr[i] : 0;
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && sr[j] > s) s = sr[j]; }
+        const ventaja = rampa(s, P.saberArcaico);
+        if (ventaja > 0) { arc[i] *= Math.exp(-P.desplaza * ventaja * dt); if (arc[i] < 0.01) arc[i] = 0; }
+      }
+      // Hito de desaparición: el territorio ocupado baja del 1 % del inicial
+      historia.arcaicos.forEach((a, k) => {
+        if (!a.hito || !arcInicial[k] || hechos.has(a.hito)) return;
+        let resto = 0;
+        for (const i of conArcaicos) if (especie[i] === k) resto += arc[i];
+        if (resto < 0.01 * arcInicial[k]) hito(a.hito, -1);
+      });
+    }
+
     // --- Paso del tiempo ---
     function paso(dt) {
       año += dt;
@@ -395,6 +444,7 @@ const Motor = (() => {
       migrar(dt);
       cruzarMar(dt);
       innovar(dt);
+      desplazar(dt);
       contar();
       revisarHitos();
     }
@@ -426,7 +476,7 @@ const Motor = (() => {
       hitos: () => logros.slice(),
       capacidad: i => capacidad(i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES),
       celdaDe,
-      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma },
+      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma, saberRecolector: sr, arcaicos: arc },
       poblacionPorRegion() {
         const t = new Float64Array(historia.regiones.length);
         for (const i of tierra) if (region[i] >= 0) t[region[i]] += pob[i];

@@ -95,7 +95,7 @@ test("si la humanidad se extingue, la partida avisa y termina", () => {
 test("la historia no depende de los cuadros por segundo", () => {
   const h = conGente({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
   const mundo = () => mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 });
-  const op = { semilla: 5, params: { cruce: [0.01, 0.01, 0.01] }, pausarEnHitos: false, presupuestoMs: Infinity };
+  const op = { semilla: 5, params: { cruce: [0.01, 0.01, 0.01], saberMar: 0 }, pausarEnHitos: false, presupuestoMs: Infinity };
   const grande = Partida.crear(mundo(), h, op);
   grande.paso(0.5);                                    // 500 años en un solo cuadro
   const chicos = Partida.crear(mundo(), h, op);

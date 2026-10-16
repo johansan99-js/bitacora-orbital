@@ -63,7 +63,7 @@ test("los desiertos reverdecen en los periodos húmedos y junto a los ríos", ()
     humedos: { cajas: [[-1, 1, -3, -1]], tramos: [[-15000, -12000]] },
     rios: [{ nombre: "Río", cajas: [[-1, 1, 1, 3]] }]
   });
-  const m = Motor.crear(tres("03330"), h);
+  const m = Motor.crear(tres("03330"), h, { params: { saberDesierto: 0 } });
   const seco = m.celdaDe(0, -2), rio = m.celdaDe(0, 2);
   const estepa = KM2 * 0.08 * 1.5, desierto = KM2 * 0.005 * 1.5;
   assert.ok(cerca(m.capacidad(seco), desierto));
