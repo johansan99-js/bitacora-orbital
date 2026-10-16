@@ -84,3 +84,41 @@ test("un desembarco cuenta como llegada solo si la celda puede sostener a la pob
   assert.ok(m.celdas.poblacion[m.celdaDe(0, 0)] > 0);   // sí desembarcaron
   assert.ok(!vistos.includes("b"));
 });
+
+test("el desierto sigue cerrado en los periodos húmedos y los valles de río no tienen compuerta", () => {
+  const h = historiaDePrueba({
+    humedos: { cajas: [[-1, 1, -3, -1]], tramos: [[-25000, 3000]] },   // húmedo toda la partida
+    rios: [{ nombre: "Río", cajas: [[-1, 1, 1, 3]] }]
+  });
+  const m = Motor.crear(mundoDePrueba(["00000", "03330", "00000"]), h, { params: { saberDesierto: 1e6 } });
+  m.avanzar(10);
+  assert.equal(m.capacidad(m.celdaDe(0, -2)), 0);    // desierto en periodo húmedo: sigue cerrado sin saber
+  assert.ok(m.capacidad(m.celdaDe(0, 2)) > 0);        // valle de río: sin compuerta
+});
+
+test("un desembarco lleva el saber de quienes cruzan", () => {
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const islas = mundoDePrueba(["0000000", "0404000", "0000000"], { lonOeste: -7 });
+  const m = Motor.crear(islas, h, { semilla: 2, params: { costera: 0, exploracion: 0, presion: 0, ritmoRec: 100, saberMar: 200, cruce: [1, 1, 1] } });
+  const j = m.celdaDe(0, 0);
+  for (let k = 0; k < 400 && m.celdas.poblacion[j] <= 0; k++) m.avanzar(10);
+  assert.ok(m.celdas.poblacion[j] > 0, "nunca desembarcaron");
+  assert.ok(m.celdas.saberRecolector[j] >= 200, `saber del desembarco: ${m.celdas.saberRecolector[j]}`);   // su propio crecimiento en un paso sería < 1
+});
+
+test("la celda de desierto que se abre recibe el saber de los migrantes", () => {
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -2, personas: 6000 }] });
+  const m = Motor.crear(mundoDePrueba(["00000", "04300", "00000"]), h, { params: { cruce: [0, 0, 0], costera: 0, exploracion: 0.01, ritmoRec: 100, saberDesierto: 200 } });
+  const d = m.celdaDe(0, 0);
+  for (let k = 0; k < 400 && m.celdas.poblacion[d] <= 0; k++) m.avanzar(10);
+  assert.ok(m.celdas.poblacion[d] > 0, "nadie llegó al desierto");
+  assert.ok(m.celdas.saberRecolector[d] >= 200, `saber en el desierto: ${m.celdas.saberRecolector[d]}`);
+});
+
+test("los arcaicos no ocupan una región de origen", () => {
+  const regiones = [{ id: "africa", nombre: "África", hito: null, origen: true, cajas: [[-90, 90, -180, -1]] }, { id: "b", nombre: "B", hito: null, cajas: [[-90, 90, -1, 180]] }];
+  const arcaicos = [{ id: "x", nombre: "X", hito: null, cajas: [[-90, 90, -180, 180]], fuente: "prueba" }];
+  const m = Motor.crear(tira(), historiaDePrueba({ regiones, arcaicos }));
+  assert.equal(m.celdas.arcaicos[m.celdaDe(0, -2)], 0);
+  assert.equal(m.celdas.arcaicos[m.celdaDe(0, 2)], 1);
+});

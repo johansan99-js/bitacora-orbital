@@ -172,7 +172,7 @@ const Motor = (() => {
     const sr = new Float32Array(N), sr0 = new Float32Array(N);   // saber de recolectores (y su copia del inicio del paso)
     // Humanos arcaicos: ocupación (0–1) y especie de cada celda
     const arc = new Float32Array(N), especie = new Int8Array(N).fill(-1);
-    historia.arcaicos.forEach((a, k) => { for (const i of tierra) if (especie[i] < 0 && enCajas(lat[i], lon[i], a.cajas)) { arc[i] = 1; especie[i] = k; } });
+    historia.arcaicos.forEach((a, k) => { for (const i of tierra) if (especie[i] < 0 && !(region[i] >= 0 && historia.regiones[region[i]].origen) && enCajas(lat[i], lon[i], a.cajas)) { arc[i] = 1; especie[i] = k; } });
     let año = opciones.inicio ?? historia.inicio, total = 0, totalIndustrial = 0, fin = false;
     let clima = { nivelMar: 0, intensidadGlacial: 0, humedoSahara: false, puentesAbiertos: [] };
     const oyentes = [], logros = [], hechos = new Set();

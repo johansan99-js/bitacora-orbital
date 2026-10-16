@@ -104,7 +104,7 @@ const HISTORIA = (() => {
     // Las cajas se dibujaron a mano sobre el mapa de 2° y son aproximadas.
     regiones: [
       // Arabia cuenta como África para la salida: el hito es "fuera de África y Arabia"
-      { id: "arabia", nombre: "Arabia", hito: null, origen: true, cajas: [[21, 29, 37, 50], [21, 24, 50, 60], [15, 21, 41, 60], [12, 15, 43, 60]] },
+      { id: "arabia", nombre: "Arabia", hito: null, origen: true, cajas: [[21, 29, 37, 50], [21, 28, 50, 57], [21, 24, 57, 60], [15, 21, 41, 60], [12, 15, 43, 60]] },
       { id: "asia_occ", nombre: "Asia occidental", hito: null, cajas: [[36, 42, 26, 50], [29, 36, 34.5, 63], [24, 29, 50, 63], [12, 24, 60, 63]] },
       { id: "africa", nombre: "África", hito: null, origen: true, cajas: [[-36, 35, -20, 52], [35, 38, -2, 11.5]] },
       { id: "europa", nombre: "Europa", hito: "europa", cajas: [[35, 52, -25, 50], [52, 72, -25, 60]] },
@@ -117,18 +117,18 @@ const HISTORIA = (() => {
     ],
 
     // Estrechos que la cuadrícula de 2° deja como celdas vecinas aunque el mar nunca se secó del todo: Gibraltar
-    // (14 km), Bab el-Mandeb (unos 4 km en el Último Máximo Glacial; Lambeck et al. 2011, Quaternary Science
-    // Reviews 30) y Bering (82 km; cuando baja el mar, el paso es el puente de Beringia, que tiene sus propias
+    // (14 km), Bab el-Mandeb, entre África y Arabia (unos 4 km en el Último Máximo Glacial; Lambeck et al. 2011,
+    // Quaternary Science Reviews 30) y Bering (82 km; cuando baja el mar, el paso es el puente de Beringia, que tiene sus propias
     // celdas). Entre celdas de tierra firme de estas regiones no se camina: solo se cruza por mar.
     barreras: [
       { entre: ["africa", "europa"] },
-      { entre: ["africa", "asia_occ"], latMax: 26 },
       { entre: ["asia", "norteamerica"] },
       { entre: ["africa", "arabia"], latMax: 26 }
     ],
 
     // Humanos arcaicos que ya vivían en Eurasia cuando llegó nuestra especie (cambio del 2026-10-15).
     // Cajas aproximadas trazadas a mano sobre el mapa de 2°: ocupan su territorio desde el inicio de la partida.
+    // No ocupan las regiones de origen (África y Arabia): el motor las salta.
     arcaicos: [
       { id: "neandertales", nombre: "Neandertales", hito: "neandertales", cajas: [[36, 56, -10, 60], [29, 42, 34.5, 62], [36, 54, 60, 90]],
         fuente: "Krause et al. (2007), Nature 449 (Altái); sitios del Levante (Tabun, Kebara) y del Zagros (Shanidar)" },
