@@ -1,6 +1,6 @@
 # La Tierra habitada: motor de población y modo Historia
 
-**Fecha:** 2026-10-14 · **Estado:** diseño aprobado por secciones, pendiente de revisión escrita
+**Fecha:** 2026-10-14 · **Estado:** aprobado · **Cambio:** 2026-10-15, se agregan humanos arcaicos y saber de recolectores (ver [Otros humanos y saber de recolectores](#otros-humanos-y-saber-de-recolectores-cambio-del-2026-10-15))
 **Sub-proyecto:** 1 de 4 (ver [Hoja de ruta](#hoja-de-ruta))
 
 ## Objetivo
@@ -20,6 +20,7 @@ El propósito es **aprender comparando**: cada vez que la humanidad simulada alc
 | Libertad | Libre, con reglas basadas en factores reales; cada partida varía |
 | Enfoque técnico | Híbrido: una cuadrícula calcula la historia; encima se dibujan bandas que caminan y luego luces de aldeas y ciudades |
 | Modo juego | Sí, pero en sub-proyectos posteriores; el motor queda preparado con "palancas" |
+| Otros humanos (2026-10-15) | Neandertales y denisovanos como fondo real del modo Historia: ocupan su territorio y nuestra especie los desplaza según su saber. Sin encuentros, mestizaje ni decisiones (eso sigue en la fase 3) |
 
 ### Criterios de éxito
 
@@ -32,7 +33,7 @@ El propósito es **aprender comparando**: cada vez que la humanidad simulada alc
 
 **Entra en este sub-proyecto:** escala "La Tierra", mapa del mundo, motor de población, vista 3D (globo, hielo, costas antiguas, bandas, luces), reloj de la simulación, avisos de hitos, tarjeta comparativa, Bitácora de tu humanidad, pruebas, calibración y publicación.
 
-**No entra:** plagas, guerras, comercio, religión, rasgos genéticos, otras especies humanas, condiciones iniciales elegidas por quien juega, poderes y decisiones. Son de los sub-proyectos 2 a 4. El motor expone sus parámetros como opciones para que esas fases se enchufen sin rehacerlo, pero esta fase no implementa ninguna intervención.
+**No entra:** plagas, guerras, comercio, religión, rasgos genéticos, encuentros, mestizaje o decisiones con otras especies humanas (aquí solo son fondo; ver el cambio del 2026-10-15), condiciones iniciales elegidas por quien juega, poderes y decisiones. Son de los sub-proyectos 2 a 4. El motor expone sus parámetros como opciones para que esas fases se enchufen sin rehacerlo, pero esta fase no implementa ninguna intervención.
 
 ## Arquitectura
 
@@ -69,7 +70,8 @@ const m = Motor.crear(MUNDO, HISTORIA, opciones);
 m.avanzar(años);          // avanza la simulación; internamente en pasos de tamaño adecuado a la era
 m.año();                  // año calendario: negativo = a. C. (p. ej. −55974 = hace 58.000 años); "hace N años" = 2026 − año
 m.poblacionTotal();       // número de personas
-m.celdas;                 // vistas de solo lectura: poblacion (Float64Array), etapa (Uint8Array), innovaciones (Uint16Array)
+m.celdas;                 // vistas de solo lectura: poblacion (Float64Array), etapa (Uint8Array), innovaciones (Uint16Array);
+                          // desde el 2026-10-15 también saberRecolector (Float32Array) y arcaicos (Float32Array, 0–1 ocupación)
 m.climaActual();          // { nivelMar, intensidadGlacial, humedoSahara, puentesAbiertos: [...] }
 m.alHito(fn);             // fn({ id, año, celda }) la primera vez que ocurre cada hito
 ```
@@ -139,11 +141,45 @@ El tamaño del paso depende de la era (200 años antes del Holoceno, 1 año desd
 
 Regiones con domesticables (con un "paquete" más o menos rico, que cambia la probabilidad): Creciente Fértil, China (ríos Amarillo y Yangtsé), Mesoamérica, Andes, Nueva Guinea, Sahel y Etiopía, este de Norteamérica.
 
+### Otros humanos y saber de recolectores (cambio del 2026-10-15)
+
+**Por qué.** Con las reglas de arriba, la humanidad simulada sale de África hace unos 296.000 años y llega a América hace unos 270.000, cuando lo real es hace 70.000–50.000 y 23.000–15.000. Un estudio de factibilidad (seis juegos de parámetros) mostró que ningún ajuste de parámetros lo corrige: la salida nunca baja de hace 227.000 años. Lo que frenó la expansión real no estaba en el modelo: otros humanos ya ocupaban Eurasia, y vivir en el desierto o cruzar el mar requería saber que tardó en acumularse. El usuario eligió agregar ambas cosas (opción A del estudio).
+
+**Saber de recolectores.** Toda celda habitada acumula un saber de recolectores, con la misma regla de Kremer que el saber agrícola:
+- crece cada año en proporción a su población;
+- sube hacia la media de sus vecinas cuando esta es mayor (nunca baja por compartirlo);
+- viaja con la gente: una celda vacía que recibe migrantes o un desembarco toma el saber de quienes llegan, y una habitada se queda con el mayor de los dos;
+- se pierde si la celda se vacía.
+
+**Compuertas.** Algunas capacidades solo se abren cuando el saber de recolectores pasa un umbral. La apertura es una rampa: cero por debajo del umbral S y completa a 1,25 S.
+- **Desierto:** las celdas de bioma base desierto que no son valle de río solo alimentan recolectores en proporción a la rampa. Esto rige también en los periodos húmedos; sin esa condición, el primer Sahara verde (hace 245.000–235.000 años) abre la salida de África.
+- **Mar:** la probabilidad de cruzar el mar sin navegación de altura (sin navegación o con la costera) se multiplica por la rampa.
+- El frío sigue igual que antes: no hay compuerta de frío.
+
+**Humanos arcaicos.** Neandertales (Europa, Levante, Anatolia, Zagros y Asia central hasta el Altái) y denisovanos (Asia oriental al norte de los 22°) ocupan su territorio desde el inicio de la partida.
+- Sus rangos son cajas aproximadas en `datos.js`, cada una con su fuente.
+- En una celda ocupada, los recolectores de nuestra especie solo disponen del 1 % de la capacidad.
+- La ocupación se reduce a un ritmo proporcional a la rampa del mayor saber de recolectores de nuestra especie en la celda o sus vecinas, frente al umbral de los arcaicos. Ese umbral es fijo: su saber no crece.
+- No hay fechas: los arcaicos desaparecen cuando y donde nuestra especie los supera.
+- Esta fase no los dibuja en el globo ni simula encuentros. Aparecen en los textos y en un hito nuevo, "Desaparición de los neandertales".
+
+**Arreglos que acompañan el cambio.**
+- **Arabia** pasa a ser una región propia que, como África, no cuenta para la salida, tal como dice el hito ("fuera de África y Arabia"). Hay una barrera entre África y Arabia al sur de los 26° (Bab el-Mandeb).
+- **Un desembarco** solo cuenta como llegada a una región si la celda puede sostener a la población establecida (`capacidad ≥ establecida`), no solo si llegaron suficientes personas.
+
+**Resultado medido en el estudio** (prototipo, 5 semillas, sin calibrar el resto): salida de África hace 62.000–77.000 años, Europa hace ~57.000, Norteamérica hace 23.000–28.000; Australia entre hace 18.000 y 45.000 según el umbral del mar. La calibración (abajo) ajusta los parámetros nuevos junto con los existentes.
+
+**Riesgos conocidos.**
+- Una vez que África se llena, el saber de recolectores crece a ritmo casi constante, así que cada umbral equivale casi a una fecha; además, los hitos tempranos variarán poco entre partidas. Se acepta porque el saber depende de la población y de las conexiones (no hay ninguna fecha en las reglas), igual que el saber agrícola ya aprobado.
+- Las cajas de los arcaicos son aproximadas: un hueco entre ellas abre una salida temprana, por eso la compuerta del desierto es imprescindible.
+- La regla de densidades "dentro de 2× de los valores etnográficos" se aplica a las densidades base. Las compuertas y la ocupación arcaica reducen la capacidad efectiva de los recolectores de nuestra especie, no la densidad humana total.
+
 ### Hitos
 
 El motor avisa una sola vez, la primera vez que ocurre cada uno:
 
-- Salida de África (primera población estable fuera de África y Arabia).
+- Salida de África (primera población estable fuera de África y Arabia; Arabia es una región propia que cuenta como África para este hito).
+- Desaparición de los neandertales: cuando su territorio ocupado baja del 1 % del inicial. En la realidad, hace 41.000–39.000 años (Higham et al. 2014). Se muestra para comparar, sin ventana de calibración.
 - Llegada a Asia, Europa, Australia, Norteamérica, Sudamérica, Polinesia y Nueva Zelanda.
 - Cada origen independiente de la agricultura (uno por región de domesticables).
 - Primera ciudad, primera escritura, industria.
@@ -240,6 +276,8 @@ Y además en al menos el 80 % de las partidas la humanidad llega a todos los con
 
 Se calibra en orden cronológico: primero las llegadas a los continentes, después la agricultura (que el Holoceno ya acota) y al final ciudades, escritura, industria y población, que dependen sobre todo del saber. Las fechas de Polinesia y Nueva Zelanda se muestran para comparar, pero no tienen ventana de calibración.
 
+Desde el cambio del 2026-10-15, la calibración ajusta también los parámetros nuevos: ritmo y difusión del saber de recolectores, umbrales del desierto, del mar y de los arcaicos, y ritmo de desplazamiento. La desaparición de los neandertales se muestra para comparar, sin ventana. El límite de 2 s por partida sigue en pie: el estudio midió 4,5–5,5 s en la computadora del usuario, así que la calibración incluye optimizar el motor sin cambiar sus resultados.
+
 ### Rendimiento y prueba en el navegador
 
 - La simulación usa como máximo ~3 ms por cuadro; los pasos se reparten entre cuadros.
@@ -258,6 +296,7 @@ Cada dato real en `datos.js` lleva su referencia en un comentario. Las fuentes p
 - Nivel del mar: Spratt y Lisiecki (2016), *A Late Pleistocene sea level stack*.
 - Población real desde 10.000 a. C.: base HYDE (Klein Goldewijk et al.) y Naciones Unidas para el presente.
 - Fechas de hitos: publicaciones citadas por hito (p. ej. Hublin et al. 2017 para Jebel Irhoud).
+- Humanos arcaicos (cambio del 2026-10-15): rangos aproximados de neandertales (incluido el Altái, Krause et al. 2007) y denisovanos (cueva de Denisova, Reich et al. 2010; Tíbet, Chen et al. 2019); desaparición de los neandertales, Higham et al. (2014).
 
 ## Hoja de ruta
 
@@ -265,5 +304,5 @@ Cada sub-proyecto tiene su propia especificación, plan y entrega, y debe funcio
 
 1. **Motor + escala "La Tierra" + modo Historia** (este documento).
 2. **Modo juego: Laboratorio orbital.** Quien juega elige las condiciones al empezar (dónde nace la humanidad, natalidad, intensidad de las glaciaciones, puentes de tierra) y usa poderes durante la partida (glaciación, erupción tipo Toba, plaga, sequía, regalar una innovación) con un recurso de Energía Orbital. Ideas para evaluar en su diseño: poderes primordiales repartidos como "semillas" al inicio.
-3. **Modo juego: Tu pueblo.** Guiar un linaje concreto; decisiones en momentos clave con la partida en pausa; rasgos ganados por presión selectiva (cuellos de botella); encuentros con otros pueblos y especies humanas (neandertales, denisovanos).
+3. **Modo juego: Tu pueblo.** Guiar un linaje concreto; decisiones en momentos clave con la partida en pausa; rasgos ganados por presión selectiva (cuellos de botella); encuentros con otros pueblos y especies humanas (neandertales, denisovanos). Desde el cambio del 2026-10-15 ya existen como fondo del modo Historia; esta fase les agrega encuentros, mestizaje y decisiones.
 4. **Capas profundas.** Religión e interpretación de los "milagros", mito fundacional, rutas de comercio que llevan tecnología, fe y plagas, crisis de era (tipo colapso de la Edad del Bronce), profetas, héroes y herejes, dioses rivales en la estación orbital (requiere una IA oponente) y la rebelión "Prometeo".

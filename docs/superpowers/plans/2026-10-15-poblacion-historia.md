@@ -14,6 +14,7 @@
 - El reloj, las pausas y el fin de partida viven en un archivo propio, `poblacion/partida.js` (`Partida`), para probarlos en Node sin DOM. La spec ya lo lista.
 - `MUNDO` acepta `latNorte` y `lonOeste` opcionales (por defecto 90 y −180) para que las pruebas usen mundos pequeños en el ecuador.
 - Los continentes del muelle (`HISTORIA.continentes`) y sus fichas se definen en `datos.js`.
+- 2026-10-15: la Tarea 7 se dividió en 7a (humanos arcaicos, saber de recolectores y compuertas; opción A elegida por el usuario tras el estudio de factibilidad) y 7b (calibración y rendimiento). Orden de ejecución: 1–6, 8, 9, 7a, 7b, 10.
 
 ## Global Constraints
 
@@ -1597,15 +1598,314 @@ git commit -m "Partida de población: reloj por era, pausa en los hitos y fin en
 
 ---
 
-### Task 7: Calibración contra la historia real
+### Task 7a: Humanos arcaicos, saber de recolectores y compuertas
+
+> Cambio del 2026-10-15 (opción A elegida por el usuario). La spec lo describe en "Otros humanos y saber de recolectores". El mecanismo es el del prototipo del estudio de factibilidad (`.superpowers/sdd/2026-10-15-poblacion-historia/spike/motor_proto.js`, configuración "RB_mar1350"), escrito limpio y con pruebas.
+
+**Files:**
+- Modify: `poblacion/datos.js` (región Arabia, campo `origen`, barrera África–Arabia, `arcaicos`, hito "neandertales", Arabia en el continente Asia)
+- Modify: `poblacion/motor.js` (PARAMS nuevos, saber de recolectores, compuertas, arcaicos, salida por `origen`, llegadas que la celda sostiene)
+- Modify: `pruebas/ayuda.mjs` (`arcaicos: []` por defecto)
+- Modify: `pruebas/datos.test.mjs`, `pruebas/motor-mundo.test.mjs`, `pruebas/motor-gente.test.mjs`, `pruebas/partida.test.mjs` (pruebas existentes que suponían el mar y el desierto abiertos)
+- Test: `pruebas/motor-arcaicos.test.mjs` (nuevo)
+
+**Interfaces:**
+- Consumes: el motor de las Tareas 3–5 con los cambios de los Rulings 12–17 (barreras, `salen`/`traen` en `migrar`, instantáneas `innov0`/`saber0` en `innovar`, `empezoConGente`).
+- Produces:
+  - `HISTORIA.regiones[k].origen` (true en "africa" y "arabia"); región nueva "arabia".
+  - `HISTORIA.arcaicos = [{ id, nombre, hito, cajas, fuente }]`; hito "neandertales".
+  - `m.celdas.saberRecolector` (Float32Array) y `m.celdas.arcaicos` (Float32Array, ocupación 0–1).
+  - PARAMS nuevos: `ritmoRec`, `difRec`, `ancho`, `saberDesierto`, `saberMar`, `saberArcaico`, `ocupaArcaico`, `desplaza`. Un umbral 0 deja la compuerta abierta.
+
+- [ ] **Step 1: Datos**
+
+En `poblacion/datos.js`:
+
+1. Reemplazar la primera entrada de `regiones` (`asia_occ`) por estas dos, y agregar `origen: true` a la región "africa":
+
+```js
+      // Arabia cuenta como África para la salida: el hito es "fuera de África y Arabia"
+      { id: "arabia", nombre: "Arabia", hito: null, origen: true, cajas: [[21, 29, 37, 50], [21, 24, 50, 60], [15, 21, 41, 60], [12, 15, 43, 60]] },
+      { id: "asia_occ", nombre: "Asia occidental", hito: null, cajas: [[36, 42, 26, 50], [29, 36, 34.5, 63], [24, 29, 50, 63], [12, 24, 60, 63]] },
+```
+
+```js
+      { id: "africa", nombre: "África", hito: null, origen: true, cajas: [[-36, 35, -20, 52], [35, 38, -2, 11.5]] },
+```
+
+2. En `barreras`, agregar al final: `{ entre: ["africa", "arabia"], latMax: 26 }`.
+
+3. Después de `barreras`, agregar:
+
+```js
+    // Humanos arcaicos que ya vivían en Eurasia cuando llegó nuestra especie (cambio del 2026-10-15).
+    // Cajas aproximadas trazadas a mano sobre el mapa de 2°: ocupan su territorio desde el inicio de la partida.
+    arcaicos: [
+      { id: "neandertales", nombre: "Neandertales", hito: "neandertales", cajas: [[36, 56, -10, 60], [29, 42, 34.5, 62], [36, 54, 60, 90]],
+        fuente: "Krause et al. (2007), Nature 449 (Altái); sitios del Levante (Tabun, Kebara) y del Zagros (Shanidar)" },
+      { id: "denisovanos", nombre: "Denisovanos", hito: null, cajas: [[22, 55, 90, 145]],
+        fuente: "Reich et al. (2010), Nature 468 (cueva de Denisova); Chen et al. (2019), Nature 569 (Xiahe, Tíbet)" }
+    ],
+```
+
+4. En `hitos`, justo después del hito "europa", agregar:
+
+```js
+      { id: "neandertales", titulo: "Desaparecieron los neandertales", corto: "Desaparición de los neandertales", real: hace(41000, 39000),
+        texto: "Los últimos neandertales desaparecieron de Europa hace unos 41.000–39.000 años, después de miles de años de convivencia con nuestra especie. Casi toda la humanidad no africana conserva entre un 1 y un 2 % de ADN neandertal.",
+        fuente: "Higham et al. (2014), Nature 512" },
+```
+
+5. En `continentes`, el de Asia pasa a `regiones: ["arabia", "asia_occ", "asia"]`.
+
+- [ ] **Step 2: Pruebas que fallan**
+
+1. `pruebas/ayuda.mjs`: en `historiaDePrueba` agregar `arcaicos: [],` a los valores por defecto (junto a `barreras: []`).
+
+2. `pruebas/datos.test.mjs`: en "todas las cajas tienen coordenadas válidas", agregar `...H.arcaicos` a la lista de entradas con cajas, y agregar esta prueba:
+
+```js
+test("los humanos arcaicos tienen fuente y cajas, y Arabia cuenta como origen", () => {
+  for (const a of H.arcaicos) {
+    assert.ok(a.id && a.nombre && a.fuente && a.cajas.length, a.id);
+    if (a.hito) assert.ok(H.hitos.some(h => h.id === a.hito), a.hito);
+  }
+  assert.deepEqual(H.regiones.filter(r => r.origen).map(r => r.id).sort(), ["africa", "arabia"]);
+});
+```
+
+3. `pruebas/motor-arcaicos.test.mjs` (nuevo):
+
+```js
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { require, mundoDePrueba, historiaDePrueba } from "./ayuda.mjs";
+const Motor = require("../poblacion/motor.js");
+const SIN_AZAR = { cruce: [0, 0, 0], costera: 0 };
+const tira = () => mundoDePrueba(["0000000", "0444440", "0000000"], { lonOeste: -7 });
+
+test("el saber de recolectores crece con la gente y viaja con los que migran", () => {
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const m = Motor.crear(tira(), h, { params: { ...SIN_AZAR, ritmoRec: 100, exploracion: 0.01 } });
+  m.avanzar(500);
+  const sr = m.celdas.saberRecolector;
+  assert.ok(sr[m.celdaDe(0, -4)] > 0);
+  assert.ok(m.celdas.poblacion[m.celdaDe(0, -2)] > 0);
+  assert.ok(sr[m.celdaDe(0, -2)] > 0);
+});
+
+test("el desierto no se habita hasta que el saber de recolectores pasa su umbral", () => {
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -2, personas: 6000 }] });
+  const mundo = () => mundoDePrueba(["00000", "04300", "00000"]);   // estepa | desierto
+  const cerrado = Motor.crear(mundo(), h, { params: { ...SIN_AZAR, exploracion: 0.01, ritmoRec: 1, saberDesierto: 1e6 } });
+  const desierto = cerrado.celdaDe(0, 0);
+  assert.equal(cerrado.capacidad(desierto), 0);
+  cerrado.avanzar(3000);
+  assert.equal(cerrado.celdas.poblacion[desierto], 0);
+  const abierto = Motor.crear(mundo(), h, { params: { ...SIN_AZAR, exploracion: 0.01, ritmoRec: 100, saberDesierto: 50 } });
+  abierto.avanzar(3000);
+  assert.ok(abierto.celdas.poblacion[abierto.celdaDe(0, 0)] > 0);
+});
+
+test("sin navegación de altura, cruzar el mar espera al saber de recolectores", () => {
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const islas = () => mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 });
+  const params = { costera: 0, exploracion: 0, presion: 0, cruce: [0.01, 0.01, 0.01], ritmoRec: 0 };
+  const sinSaber = Motor.crear(islas(), h, { semilla: 3, params: { ...params, saberMar: 1e6 } });
+  sinSaber.avanzar(2000);
+  assert.equal(sinSaber.celdas.poblacion[sinSaber.celdaDe(0, 0)], 0);
+  const sinCompuerta = Motor.crear(islas(), h, { semilla: 3, params: { ...params, saberMar: 0 } });
+  sinCompuerta.avanzar(2000);
+  assert.ok(sinCompuerta.celdas.poblacion[sinCompuerta.celdaDe(0, 0)] > 0);
+});
+
+test("los arcaicos ocupan su territorio hasta que el saber de nuestra especie los desplaza", () => {
+  const arcaicos = [{ id: "neandertales", nombre: "N", hito: "neandertales", cajas: [[-1, 1, -1, 5]], fuente: "prueba" }];
+  const h = historiaDePrueba({ arcaicos, origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 6000 }] });
+  const base = { ...SIN_AZAR, exploracion: 0.01, ritmoRec: 100 };
+  const fuertes = Motor.crear(tira(), h, { params: { ...base, saberArcaico: 1e6 } });
+  const b = fuertes.celdaDe(0, 0), libre = fuertes.capacidad(fuertes.celdaDe(0, -2));
+  assert.ok(Math.abs(fuertes.capacidad(b) - libre * 0.01) < 1e-4 * libre);   // nuestra especie solo dispone del 1 %
+  fuertes.avanzar(3000);
+  assert.equal(fuertes.celdas.arcaicos[b], 1);
+  const debiles = Motor.crear(tira(), h, { params: { ...base, saberArcaico: 50, desplaza: 0.02 } });
+  const vistos = [];
+  debiles.alHito(x => vistos.push(x.id));
+  debiles.avanzar(6000);
+  assert.equal(debiles.celdas.arcaicos[debiles.celdaDe(0, 0)], 0);
+  assert.ok(vistos.includes("neandertales"));
+});
+
+test("Arabia cuenta como África para la salida", () => {
+  const regiones = [
+    { id: "africa", nombre: "África", hito: null, origen: true, cajas: [[-90, 90, -180, -3]] },
+    { id: "arabia", nombre: "Arabia", hito: null, origen: true, cajas: [[-90, 90, -3, 1]] },
+    { id: "asia", nombre: "Asia", hito: "asia", cajas: [[-90, 90, 1, 180]] }
+  ];
+  const h = historiaDePrueba({ regiones, origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const m = Motor.crear(tira(), h, { params: { ...SIN_AZAR, exploracion: 0.01 } });
+  const salida = [];
+  m.alHito(x => { if (x.id === "salida_africa") salida.push(m.celdas.lon[x.celda]); });
+  m.avanzar(5000);
+  assert.equal(salida.length, 1);
+  assert.ok(salida[0] > 1);   // cuenta recién al llegar a Asia (lon 2 o 4), no en Arabia (lon −2 y 0)
+});
+
+test("un desembarco cuenta como llegada solo si la celda puede sostener a la población establecida", () => {
+  const regiones = [{ id: "a", nombre: "A", hito: null, origen: true, cajas: [[-90, 90, -180, -1]] }, { id: "b", nombre: "B", hito: "b", cajas: [[-90, 90, -1, 180]] }];
+  const islas = [{ nombre: "Islote", lat: 0, lon: 0, km2: 50, bioma: 4 }];   // capacidad 50 × 0,08 × 1,5 = 6 personas
+  const h = historiaDePrueba({ regiones, islas, origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const m = Motor.crear(mundoDePrueba(["0000000", "0400000", "0000000"], { lonOeste: -7 }), h,
+    { semilla: 1, params: { costera: 0, exploracion: 0, presion: 0, saberMar: 0, cruce: [1, 1, 1] } });
+  const vistos = [];
+  m.alHito(x => vistos.push(x.id));
+  m.avanzar(500);
+  assert.ok(m.celdas.poblacion[m.celdaDe(0, 0)] > 0);   // sí desembarcaron
+  assert.ok(!vistos.includes("b"));
+});
+```
+
+4. Pruebas existentes que suponían el mar o el desierto siempre abiertos (los umbrales por defecto ahora los cierran sin saber): agregar el parámetro que abre la compuerta.
+   - `pruebas/motor-mundo.test.mjs`, "los desiertos reverdecen…": `Motor.crear(tres("03330"), h)` → `Motor.crear(tres("03330"), h, { params: { saberDesierto: 0 } })`.
+   - `pruebas/motor-gente.test.mjs`, "la misma semilla…": `params: { cruce: [0.01, 0.01, 0.01] }` → `params: { cruce: [0.01, 0.01, 0.01], saberMar: 0 }`.
+   - `pruebas/motor-gente.test.mjs`, "un estrecho que nunca se secó…", brazo `navegando`: agregar `saberMar: 0` a sus `params`.
+   - `pruebas/partida.test.mjs`, "la historia no depende de los cuadros…": `params: { cruce: [0.01, 0.01, 0.01] }` → `params: { cruce: [0.01, 0.01, 0.01], saberMar: 0 }`.
+
+Run: `node --test "pruebas/*.test.mjs"`
+Expected: FAIL. Las 6 pruebas nuevas fallan (`saberRecolector` y `arcaicos` no existen; la salida se dispara en Arabia), igual que la nueva de datos (no hay `arcaicos`).
+
+- [ ] **Step 3: Motor**
+
+En `poblacion/motor.js`:
+
+1. `PARAMS`: cambiar `cruce` a `[0.0002, 0.0005, 0.0005]` y, después de `industriaGlobal`, agregar (con la coma que falta en la línea anterior):
+
+```js
+    // Saber de recolectores (cambio del 2026-10-15): crece con la gente y abre el desierto, el mar y el territorio de
+    // los humanos arcaicos. Valores iniciales del estudio de factibilidad; los finales salen de la calibración.
+    ritmoRec: 1,             // saber de recolectores ganado por año por cada millón de personas
+    difRec: 0.002,           // ritmo con el que sube hacia la media de las vecinas
+    ancho: 0.25,             // una compuerta se abre entre el umbral S y S × (1 + ancho)
+    saberDesierto: 1400,     // umbral para vivir en el desierto fuera de los valles de río (0 = sin compuerta)
+    saberMar: 1350,          // umbral para cruzar el mar sin navegación de altura (0 = sin compuerta)
+    saberArcaico: 1550,      // umbral para desplazar a los humanos arcaicos (0 = se retiran enseguida)
+    ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
+    desplaza: 0.005          // ritmo por año con que se retiran los arcaicos ante un saber mayor
+```
+
+2. En `// --- Estado ---`, después de la línea que declara `hielo`, `plataforma`, `bio` y `base`, agregar:
+
+```js
+    const sr = new Float32Array(N), sr0 = new Float32Array(N);   // saber de recolectores (y su copia del inicio del paso)
+    // Humanos arcaicos: ocupación (0–1) y especie de cada celda
+    const arc = new Float32Array(N), especie = new Int8Array(N).fill(-1);
+    historia.arcaicos.forEach((a, k) => { for (const i of tierra) if (especie[i] < 0 && enCajas(lat[i], lon[i], a.cajas)) { arc[i] = 1; especie[i] = k; } });
+```
+
+3. Antes de `function capacidad`, agregar la rampa y la compuerta, y cambiar `capacidad` para recibir el saber de quien la evalúa:
+
+```js
+    // Compuerta en rampa: cerrada bajo el umbral S, abierta del todo en S × (1 + ancho); un umbral 0 la deja abierta
+    const rampa = (s, S) => S > 0 ? Math.min(1, Math.max(0, (s - S) / (P.ancho * S))) : 1;
+    // El desierto fuera de los valles de río solo alimenta recolectores con saber suficiente (también en los periodos húmedos)
+    const puerta = (i, s) => bioma0[i] === DESIERTO && !rio[i] ? rampa(s, P.saberDesierto) : 1;
+```
+
+   y en `capacidad`: firma `function capacidad(i, e, s = sr[i])`, y justo después de la línea `if (e === RECOLECTORES && costa[i]) k *= P.costa;` agregar:
+
+```js
+      if (e === RECOLECTORES) k *= puerta(i, s) * (1 - P.ocupaArcaico * arc[i]);   // compuerta y territorio arcaico
+```
+
+4. `vaciar`: agregar `sr[i] = 0;`.
+
+5. `migrar` (el saber viaja con la gente):
+   - declarar `llegaS` junto a `llegan`: `const llegan = new Float64Array(N), llegaS = new Float64Array(N), salen = …` (mantener el resto de la línea);
+   - en el primer `for` de limpieza, agregar `llegaS[i] = 0;`;
+   - en el cálculo de pesos, cambiar `capacidad(j, etapaDe(aptas(innov[i] | innov[j], j)))` por `capacidad(j, etapaDe(aptas(innov[i] | innov[j], j)), Math.max(sr[j], sr[i]))`;
+   - donde se suma `llegan[j] += v;`, agregar `llegaS[j] += v * sr[i];`;
+   - en el `for` final, después de `if (llegan[i] <= 0) continue;`, agregar:
+
+```js
+        const traido = llegaS[i] / llegan[i];   // saber medio de los que llegan
+        sr[i] = pob[i] <= 0 ? traido : Math.max(sr[i], traido);
+```
+
+6. `destinoPorMar`: cambiar `capacidad(j, RECOLECTORES) > 0` por `capacidad(j, RECOLECTORES, sr[i]) > 0`.
+
+7. `cruzarMar`: reemplazar la línea del sorteo por:
+
+```js
+        const compuerta = nivel < 2 ? rampa(sr[i], P.saberMar) : 1;   // sin navegación de altura, el mar espera al saber
+        if (rnd() >= 1 - Math.exp(-P.cruce[nivel] * compuerta * cruceMult * dt)) continue;
+```
+
+   y reemplazar `if (pob[j] <= 0) innov[j] = 0;` por `if (pob[j] <= 0) { innov[j] = 0; sr[j] = sr[i]; } else sr[j] = Math.max(sr[j], sr[i]);`.
+
+8. Hitos de llegada: reemplazar `const africa = historia.regiones.findIndex(r => r.id === "africa");` por `const origen = historia.regiones.map(r => !!r.origen);`. En `revisarHitos`, después de la línea `if (pob[i] < P.establecida || region[i] < 0) continue;` agregar `if (capacidad(i, etapaDe(innov[i])) < P.establecida) continue;   // un desembarco que la celda no sostiene no cuenta`, y reemplazar `if (region[i] !== africa) hito("salida_africa", i);` por `if (!origen[region[i]]) hito("salida_africa", i);`.
+
+9. `innovar`: en la primera línea agregar la copia: `innov0.set(innov); saber0.set(saber); sr0.set(sr);`, y justo después de `const apta = aptaAgricultura(i);` agregar:
+
+```js
+        // Saber de recolectores: crece con la gente y sube hacia el de las vecinas cuando es mayor
+        let s = sr[i] + dt * P.ritmoRec * (p / 1e6), sumaR = 0, nR = 0;
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0) { sumaR += sr0[j]; nR++; } }
+        if (nR && sumaR / nR > s) s += (sumaR / nR - s) * probPor(P.difRec, dt);
+        sr[i] = s;
+```
+
+10. Antes de `// --- Paso del tiempo ---`, agregar:
+
+```js
+    // --- Humanos arcaicos: se retiran donde el saber de recolectores de nuestra especie (en la celda o sus vecinas) supera el suyo ---
+    const conArcaicos = tierra.filter(i => arc[i] > 0);
+    const arcInicial = historia.arcaicos.map((a, k) => conArcaicos.filter(i => especie[i] === k).length);
+    function desplazar(dt) {
+      for (const i of conArcaicos) {
+        if (arc[i] <= 0) continue;
+        let s = pob[i] > 0 ? sr[i] : 0;
+        for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && sr[j] > s) s = sr[j]; }
+        const ventaja = rampa(s, P.saberArcaico);
+        if (ventaja > 0) { arc[i] *= Math.exp(-P.desplaza * ventaja * dt); if (arc[i] < 0.01) arc[i] = 0; }
+      }
+      // Hito de desaparición: el territorio ocupado baja del 1 % del inicial
+      historia.arcaicos.forEach((a, k) => {
+        if (!a.hito || !arcInicial[k] || hechos.has(a.hito)) return;
+        let resto = 0;
+        for (const i of conArcaicos) if (especie[i] === k) resto += arc[i];
+        if (resto < 0.01 * arcInicial[k]) hito(a.hito, -1);
+      });
+    }
+
+```
+
+11. `paso`: después de `innovar(dt);` agregar `desplazar(dt);`.
+
+12. En el objeto `celdas` que devuelve `crear`, agregar `saberRecolector: sr, arcaicos: arc`.
+
+- [ ] **Step 4: Correr todas las pruebas**
+
+Run: `node --test "pruebas/*.test.mjs"` (tres veces)
+Expected: PASS (49 pruebas: 42 + 6 de arcaicos + 1 de datos), sin pruebas intermitentes.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add poblacion/datos.js poblacion/motor.js pruebas/
+git commit -m "Motor: humanos arcaicos, saber de recolectores y compuertas de desierto y mar" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7b: Calibración contra la historia real y rendimiento
 
 **Files:**
 - Create: `pruebas/calibrar.mjs`
-- Modify: `poblacion/motor.js` (solo valores de `PARAMS`)
+- Modify: `poblacion/motor.js` (valores de `PARAMS` y optimizaciones que no cambien resultados)
 
 **Interfaces:**
-- Consumes: `MUNDO`, `HISTORIA`, `Motor.crear` (Tareas 1–5).
-- Produces: `PARAMS` calibrados. La salida de `calibrar.mjs` va en el cuerpo del commit.
+- Consumes: `MUNDO`, `HISTORIA`, `Motor.crear` con el mecanismo de la Tarea 7a.
+- Produces: `PARAMS` calibrados; la salida de `calibrar.mjs` va en el cuerpo del commit.
 
 - [ ] **Step 1: Escribir el script de calibración**
 
@@ -1628,9 +1928,10 @@ const VENTANAS = [
   ["primera_ciudad", hace(8000), hace(4000)],
   ["industria", 1500, 1900]
 ];
+const SIN_VENTANA = ["neandertales", "polinesia", "nueva_zelanda"];   // se muestran para comparar
 const CONTINENTES = ["asia", "europa", "sahul", "norteamerica", "sudamerica"];
 const n = Number(process.argv[2] || 30);
-const años = Object.fromEntries(VENTANAS.map(([id]) => [id, []]));
+const años = Object.fromEntries([...VENTANAS.map(([id]) => id), ...SIN_VENTANA].map(id => [id, []]));
 const poblaciones = [], tiempos = [];
 let completas = 0;
 
@@ -1642,7 +1943,7 @@ for (let s = 1; s <= n; s++) {
   const h = new Map(m.hitos().map(x => [x.id, x.año]));
   const agri = [...h].filter(([id]) => id.startsWith("agricultura_")).map(([, a]) => a);
   if (agri.length) h.set("agricultura", Math.min(...agri));
-  for (const [id] of VENTANAS) años[id].push(h.has(id) ? h.get(id) : Infinity);
+  for (const id of Object.keys(años)) años[id].push(h.has(id) ? h.get(id) : Infinity);
   if (CONTINENTES.every(id => h.has(id))) completas++;
   poblaciones.push(m.poblacionTotal());
   process.stdout.write(".");
@@ -1650,13 +1951,15 @@ for (let s = 1; s <= n; s++) {
 
 const pct = (arr, q) => { const a = [...arr].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };
 const fmt = a => a === Infinity ? "nunca" : a < -10000 ? `hace ${Math.round((P - a) / 1000)} mil` : a < 0 ? `${-Math.round(a)} a. C.` : `${Math.round(a)}`;
+const fila = (marca, id, extra) => console.log(`${marca} ${id.padEnd(18)} ${fmt(pct(años[id], 0.1)).padEnd(14)} ${fmt(pct(años[id], 0.5)).padEnd(14)} ${fmt(pct(años[id], 0.9)).padEnd(14)} ${extra}`);
 let ok = true;
 console.log("\n\n  hito                p10            mediana        p90            ventana de la mediana");
 for (const [id, a, b] of VENTANAS) {
   const med = pct(años[id], 0.5), bien = med >= a && med <= b;
   ok = ok && bien;
-  console.log(`${bien ? "✓" : "✗"} ${id.padEnd(18)} ${fmt(pct(años[id], 0.1)).padEnd(14)} ${fmt(med).padEnd(14)} ${fmt(pct(años[id], 0.9)).padEnd(14)} ${fmt(a)} … ${fmt(b)}`);
+  fila(bien ? "✓" : "✗", id, `${fmt(a)} … ${fmt(b)}`);
 }
+for (const id of SIN_VENTANA) fila("·", id, "(solo para comparar)");
 const medPob = pct(poblaciones, 0.5), pobBien = medPob >= 3e9 && medPob <= 15e9;
 const contBien = completas / n >= 0.8, tMed = pct(tiempos, 0.5), tBien = tMed < 2000;
 ok = ok && pobBien && contBien && tBien;
@@ -1666,43 +1969,63 @@ console.log(`${tBien ? "✓" : "✗"} tiempo por partida: mediana ${Math.round(t
 process.exit(ok ? 0 : 1);
 ```
 
-- [ ] **Step 2: Correr la calibración con los parámetros iniciales**
+- [ ] **Step 2: Medir el punto de partida**
 
-Run: `node pruebas/calibrar.mjs 10`
-Expected: termina e imprime la tabla. Lo normal es que varias filas salgan con ✗; anota cuáles.
+Run: `node pruebas/calibrar.mjs 5`
+Expected: termina e imprime la tabla. Anota cada fila con ✗ y el tiempo por partida. El estudio midió unos 4,5–5,5 s por partida en esta computadora.
 
-Si la mediana del tiempo pasa de 2000 ms, primero optimiza (sin cambiar resultados) y vuelve a medir: perfila con `node --cpu-prof pruebas/calibrar.mjs 3` y mira el `.cpuprofile` en las DevTools de Chrome. Los sospechosos habituales son `capacidad` dentro de `migrar`, `vecinasCon` dentro de `innovar` y `revisarHitos` (que recorre todas las celdas en cada paso). Suele bastar con dos cambios: precalcular por paso la capacidad de recolectores de cada celda en un `Float32Array`, y que `revisarHitos` deje de recorrer las celdas cuando ya se alcanzaron todas las regiones.
+- [ ] **Step 3: Rendimiento (sin cambiar resultados)**
 
-- [ ] **Step 3: Ajustar `PARAMS` en orden cronológico hasta que todo pase**
+Antes de calibrar, baja el tiempo por partida por debajo de 2 s **sin cambiar los resultados**:
+1. Guarda una referencia: el `JSON.stringify` de `m.hitos()` y de `Array.from(m.celdas.poblacion)` para las semillas 1–3 tras una partida completa.
+2. Optimiza.
+3. Verifica que la referencia salga idéntica y que `node --test "pruebas/*.test.mjs"` siga pasando.
 
-Cambia **un** parámetro por vez en `poblacion/motor.js`, corre `node pruebas/calibrar.mjs 10` y, cuando todo pase con 10 partidas, confirma con 30. Calibra en este orden: primero las llegadas, después la agricultura (el Holoceno ya la acota) y al final ciudades, industria y población, que dependen del saber.
+Perfila con `node --cpu-prof` y mira el `.cpuprofile` en las DevTools. Sospechosos medidos o probables:
+- `migrar` (68 % del tiempo en la Tarea 4), con hasta 8 `capacidad(...)` por celda poblada y por paso;
+- `actualizarClima` y `contar`, que recorren todas las celdas en cada paso aunque el clima no cambie;
+- `revisarHitos`, que recorre todas las celdas aunque ya se hayan alcanzado todas las regiones;
+- el bucle de vecinas del saber de recolectores en `innovar`.
 
-| Si falla… | Ajusta | Efecto |
+Técnicas válidas:
+- precalcular por paso la capacidad de recolectores en un `Float32Array`, sin perder el saber de quien llega;
+- recorrer una lista de celdas habitadas;
+- saltar `actualizarClima` cuando el nivel del mar y el tramo húmedo no cambiaron;
+- cortar `revisarHitos` cuando ya no queda nada por alcanzar.
+
+Si después de un esfuerzo razonable la mediana sigue sobre 2 s, deja de optimizar y repórtalo como DONE_WITH_CONCERNS con las mediciones; el controlador decide.
+
+- [ ] **Step 4: Calibrar en orden cronológico**
+
+Cambia **un** parámetro por vez en `poblacion/motor.js` y corre `node pruebas/calibrar.mjs 10`. Cuando todo pase con 10 partidas, confirma con 30. Puedes usar los scripts del estudio (`.superpowers/sdd/2026-10-15-poblacion-historia/spike/uno.js` y `correr.js`) como referencia para correr partidas en paralelo.
+
+| Si falla… | Ajusta en PARAMS | Efecto |
 |---|---|---|
-| `salida_africa` muy tarde / temprano | `exploracion`, `presion` | más alto = el frente avanza más rápido |
-| `sahul` muy tarde | `cruce[0]`, `costera` | más alto = se cruza antes |
-| `europa` muy tarde | `exploracion`, `densidad[1][2]` (tundra), `frio` | más gente aguanta el frío |
-| `norteamerica` muy tarde | `densidad[1][2]` (tundra), `exploracion` | Beringia más transitable |
-| `agricultura` muy tarde | `agricultura`, `llenaAgricultura` (más bajo) | aparece antes en el Holoceno |
-| `primera_ciudad` muy temprano / tarde | `densidadCiudad`, `ritmoSaber`, `ciudades` | umbral más alto o saber más lento = más tarde |
-| `industria` muy temprano / tarde | `saberIndustria`, `ritmoSaber`, `difusionSaber` | más saber necesario = más tarde |
+| `salida_africa` muy temprano / tarde | `saberDesierto` (y la relación con `ritmoRec`) | umbral más alto = más tarde |
+| `europa` muy temprano / tarde | `saberArcaico`, `desplaza` | umbral más alto o ritmo más lento = más tarde |
+| `sahul` muy tarde / temprano | `saberMar` (debajo de `saberDesierto` adelanta Sahul pero puede abrir Gibraltar), `cruce[0..1]` | umbral más bajo = antes |
+| `norteamerica` muy tarde | `saberArcaico`/`desplaza` (Asia oriental se libera antes), `exploracion` | antes |
+| `agricultura` muy tarde | `agricultura`, `llenaAgricultura` (más bajo) | antes |
+| `primera_ciudad` | `densidadCiudad`, `ritmoSaber`, `ciudades` | umbral más alto o saber más lento = más tarde |
+| `industria` | `saberIndustria`, `ritmoSaber`, `difusionSaber` | más saber necesario = más tarde |
 | población en 2026 fuera de 3–15 mil millones | `densidad[4]`, `crecimiento[4]`, `industriaGlobal` | más densidad = más gente |
-| menos del 80 % llega a todos los continentes | `cruce[0]`, `exploracion` | más alcance |
+| menos del 80 % llega a todos los continentes | `cruce`, `saberMar`, `exploracion` | más alcance |
 
 Reglas:
-- Nunca agregues una condición con fechas ni un dato que fuerce un hito. Solo valen los parámetros de `PARAMS`.
-- Mantén las densidades de recolectores dentro de 2× de sus valores etnográficos iniciales.
+- Nunca agregues una condición con fechas ni un dato que fuerce un hito. Solo valen los valores de `PARAMS`.
+- Las densidades base de recolectores se mantienen dentro de 2× de sus valores etnográficos iniciales.
 - Cuando cambies un parámetro de una época temprana, vuelve a revisar las filas posteriores.
+- Si una ventana resulta imposible después de un esfuerzo razonable, no la fuerces: repórtalo como DONE_WITH_CONCERNS con la tabla y qué la impide.
 
-- [ ] **Step 4: Confirmar con 30 partidas y con las pruebas**
+- [ ] **Step 5: Confirmar con 30 partidas y con las pruebas**
 
 Run: `node pruebas/calibrar.mjs`
 Expected: todas las filas con ✓ y código de salida 0.
 
 Run: `node --test "pruebas/*.test.mjs"`
-Expected: PASS (34 pruebas; usan parámetros propios, así que no dependen de la calibración).
+Expected: PASS (las pruebas usan parámetros propios o desactivan las compuertas, así que no dependen de la calibración).
 
-- [ ] **Step 5: Commit con el resultado**
+- [ ] **Step 6: Commit con el resultado**
 
 ```bash
 git add pruebas/calibrar.mjs poblacion/motor.js
