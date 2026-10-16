@@ -32,7 +32,7 @@ const Partida = (() => {
     // El motor siempre avanza en pasos completos, los mismos que en la calibración, así la historia no depende de los
     // cuadros por segundo ni de la velocidad: los años pedidos se acumulan en `debe` y el resto queda para el cuadro siguiente.
     function paso(dt) {
-      if (!jugando || motor.terminado()) return 0;
+      if (!jugando || motor.terminado() || !(dt > 0)) return 0;
       const pedido = dt * añosPorSegundo();
       debe = Math.min(debe + pedido, Math.max(pedido, 10 * motor.pasoMax()));   // sin atraso infinito si la máquina no da abasto
       const t0 = reloj();
@@ -58,7 +58,7 @@ const Partida = (() => {
       paso,
       añosPorSegundo,
       reproduciendo: () => jugando,
-      setReproduciendo(b) { jugando = !!b && !motor.terminado(); emitir({ tipo: "pausa" }); return jugando; },
+      setReproduciendo(b) { jugando = !!b && !motor.terminado(); if (!jugando) debe = 0; emitir({ tipo: "pausa" }); return jugando; },
       velocidad(i) { if (Number.isFinite(i)) mult = Math.min(MULTIPLICADORES.length - 1, Math.max(0, Math.round(i))); },
       textoAño: (año = motor.año()) => textoAño(año, historia.presente),
       textoVelocidad() {

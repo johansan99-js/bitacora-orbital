@@ -82,7 +82,8 @@ const PanelTierra = (() => {
       $("t-hito-fuente").textContent = d.fuente ? `Fuente: ${d.fuente}` : "";
       $("t-hito-ir").hidden = h.celda < 0;
       aviso.hidden = false;
-      $("t-hito-seguir").focus();
+      // Con un modal abierto (la Bitácora, el cuestionario) el foco se queda en él; el aviso espera detrás
+      if (!document.querySelector(".modal:not([hidden])")) $("t-hito-seguir").focus();
     }
     function seguir() {
       partida.tomarHito();
