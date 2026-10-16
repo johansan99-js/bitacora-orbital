@@ -271,6 +271,9 @@ Sobre un mundo de mentira pequeño (unas decenas de celdas, con su propia curva 
 | Primera ciudad | hace 8.000–4.000 |
 | Industria | 1500–1900 d. C. |
 | Población en 2026 | 3.000–15.000 millones |
+| 1.000 millones de personas (agregada el 2026-10-15) | 1500–1950 d. C. |
+
+Agregado el 2026-10-15 a pedido del usuario: además, al menos el 80 % de las partidas llega a la industria antes de 2026. La primera calibración dejaba la población preindustrial entre 10 y 50 veces por encima de la real (los 1.000 millones caían entre 3600 y 900 a. C.) y en 8 de cada 30 partidas la industria nunca llegaba.
 
 Y además en al menos el 80 % de las partidas la humanidad llega a todos los continentes habitados. Si no se cumple, se ajustan los parámetros de las reglas; nunca se fuerza un resultado. Cada partida sin dibujo debe tardar menos de 2 segundos.
 
