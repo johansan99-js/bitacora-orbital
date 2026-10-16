@@ -12,14 +12,15 @@ const VENTANAS = [
   ["norteamerica", hace(30000), hace(12000)],
   ["agricultura", hace(13000), hace(8000)],   // la primera, de cualquier región
   ["primera_ciudad", hace(8000), hace(4000)],
-  ["industria", 1500, 1900]
+  ["industria", 1500, 1900],
+  ["mil_millones", 1500, 1950]
 ];
 const SIN_VENTANA = ["neandertales", "polinesia", "nueva_zelanda"];   // se muestran para comparar
 const CONTINENTES = ["asia", "europa", "sahul", "norteamerica", "sudamerica"];
 const n = Number(process.argv[2] || 30);
 const años = Object.fromEntries([...VENTANAS.map(([id]) => id), ...SIN_VENTANA].map(id => [id, []]));
 const poblaciones = [], tiempos = [];
-let completas = 0;
+let completas = 0, industriales = 0;
 
 for (let s = 1; s <= n; s++) {
   const t0 = performance.now();
@@ -31,6 +32,7 @@ for (let s = 1; s <= n; s++) {
   if (agri.length) h.set("agricultura", Math.min(...agri));
   for (const id of Object.keys(años)) años[id].push(h.has(id) ? h.get(id) : Infinity);
   if (CONTINENTES.every(id => h.has(id))) completas++;
+  if (h.has("industria")) industriales++;
   poblaciones.push(m.poblacionTotal());
   process.stdout.write(".");
 }
@@ -47,9 +49,10 @@ for (const [id, a, b] of VENTANAS) {
 }
 for (const id of SIN_VENTANA) fila("·", id, "(solo para comparar)");
 const medPob = pct(poblaciones, 0.5), pobBien = medPob >= 3e9 && medPob <= 15e9;
-const contBien = completas / n >= 0.8, tMed = pct(tiempos, 0.5), tBien = tMed < 2000;
-ok = ok && pobBien && contBien && tBien;
+const contBien = completas / n >= 0.8, indBien = industriales / n >= 0.8, tMed = pct(tiempos, 0.5), tBien = tMed < 2000;
+ok = ok && pobBien && contBien && indBien && tBien;
 console.log(`${pobBien ? "✓" : "✗"} población en ${P}: mediana ${(medPob / 1e9).toFixed(2)} mil millones (ventana 3–15)`);
 console.log(`${contBien ? "✓" : "✗"} llegan a todos los continentes habitados: ${completas}/${n} partidas (mínimo 80 %)`);
+console.log(`${indBien ? "✓" : "✗"} llegan a la industria: ${industriales}/${n} partidas (mínimo 80 %)`);
 console.log(`${tBien ? "✓" : "✗"} tiempo por partida: mediana ${Math.round(tMed)} ms (máximo 2000)`);
 process.exit(ok ? 0 : 1);

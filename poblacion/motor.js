@@ -17,8 +17,8 @@ const Motor = (() => {
     densidad: [
       null,
       [0, 0, 0.02, 0.005, 0.08, 0.06, 0.1],
-      [0, 0, 0, 0.3, 6, 4, 3],
-      [0, 0, 0, 1, 18, 12, 9],
+      [0, 0, 0, 0.045, 0.9, 0.6, 0.45],
+      [0, 0, 0, 0.07, 1.35, 0.9, 0.7],
       [0, 0, 1, 8, 150, 100, 80]
     ],
     costa: 1.5,              // extra de la pesca para recolectores en celdas costeras
@@ -31,18 +31,18 @@ const Motor = (() => {
     cruce: [0.0002, 0.0005, 0.0005],   // probabilidad por año de cruzar el mar desde una costa: sin navegación, costera, de altura
     alcance: [1, 2, 20],     // celdas de agua que se pueden cruzar en cada caso
     costera: 2e-7,           // aparición de la navegación costera, por año y por cada 1.000 personas en la costa
-    agricultura: 0.0002,     // aparición de la agricultura por año en una celda llena de una región con domesticables
+    agricultura: 0.002,      // aparición de la agricultura por año en una celda llena de una región con domesticables
     llenaAgricultura: 0.7,   // fracción de la capacidad de recolectores desde la que empieza a aparecer
-    ciudades: 0.0005,        // aparición de ciudades por año con densidad al doble del umbral y todas las vecinas agrícolas
-    densidadCiudad: 8,       // personas por km² desde las que pueden aparecer ciudades
+    ciudades: 0.5,           // aparición de ciudades por año con densidad al doble del umbral y todas las vecinas agrícolas
+    densidadCiudad: 1.8,     // personas por km² desde las que pueden aparecer ciudades
     escritura: 0.0005,       // aparición de la escritura por año y por cada vecina con ciudades más allá del mínimo
     vecinosEscritura: 2,     // vecinas con ciudades necesarias para que aparezca la escritura
     altura: 0.00005,         // aparición de la navegación de altura por año con saber suficiente
     saberAltura: 2000,       // saber con el que la navegación de altura llega a su probabilidad completa
-    industria: 0.0005,       // aparición de la industria por año con saber al doble del umbral
-    saberIndustria: 24000,   // saber desde el que puede aparecer la industria
-    ritmoSaber: 1,           // saber ganado por año por cada millón de personas agrícolas
-    escrituraSaber: 2,       // la escritura multiplica el saber ganado
+    industria: 0.5,          // aparición de la industria por año con saber al doble del umbral
+    saberIndustria: 19500,   // saber desde el que puede aparecer la industria
+    ritmoSaber: 13.3,        // saber ganado por año por cada millón de personas agrícolas
+    escrituraSaber: 1,       // la escritura multiplica el saber ganado
     difusionSaber: 0.002,    // ritmo con el que el saber se iguala con el de las vecinas
     saberIntensifica: 5000,  // cada tantos puntos de saber, la capacidad agrícola y urbana sube un 100 %
     saberMax: 3,             // tope de esa subida (capacidad ×4)
