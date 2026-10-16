@@ -40,7 +40,7 @@ const Motor = (() => {
     altura: 0.00005,         // aparición de la navegación de altura por año con saber suficiente
     saberAltura: 2000,       // saber con el que la navegación de altura llega a su probabilidad completa
     industria: 0.0005,       // aparición de la industria por año con saber al doble del umbral
-    saberIndustria: 20000,   // saber desde el que puede aparecer la industria
+    saberIndustria: 24000,   // saber desde el que puede aparecer la industria
     ritmoSaber: 1,           // saber ganado por año por cada millón de personas agrícolas
     escrituraSaber: 2,       // la escritura multiplica el saber ganado
     difusionSaber: 0.002,    // ritmo con el que el saber se iguala con el de las vecinas
@@ -50,7 +50,7 @@ const Motor = (() => {
     contagioEscritura: 3,    // la escritura acelera el contagio y la difusión del saber
     industriaGlobal: 0.05,   // contagio mundial de la industria, multiplicado por la fracción de población industrial
     // Saber de recolectores (cambio del 2026-10-15): crece con la gente y abre el desierto, el mar y el territorio de
-    // los humanos arcaicos. Valores iniciales del estudio de factibilidad; los finales salen de la calibración.
+    // los humanos arcaicos. Valores del estudio de factibilidad: con ellos las llegadas ya caen en sus ventanas de calibración.
     ritmoRec: 1,             // saber de recolectores ganado por año por cada millón de personas
     difRec: 0.002,           // ritmo con el que sube hacia la media de las vecinas
     ancho: 0.25,             // una compuerta se abre entre el umbral S y S × (1 + ancho)
