@@ -1475,9 +1475,10 @@ function crearEspacio() {
     }
     return true;
   })();
-  const cargador = usaBitmap ? new THREE.ImageBitmapLoader().setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none" }) : new THREE.TextureLoader();
+  const cargadorBitmap = usaBitmap ? new THREE.ImageBitmapLoader().setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none" }) : null;
+  const cargadorImg = new THREE.TextureLoader();
   const WEBP = new Set(["earth_day.jpg", "earth_night.jpg", "earth_spec.jpg", "earth_clouds.jpg", "jupiter.jpg", "mars.jpg", "pluto.jpg", "pluto_bump.jpg", "sun.jpg"]);
-  function cargarImagen(archivo) {
+  function cargarCon(cargador, archivo) {
     return new Promise(ok => cargador.load(`tex/${archivo}`, img => {
       const t = img.isTexture ? img : new THREE.Texture(img);
       if (!img.isTexture) { t.flipY = false; t.needsUpdate = true; }
@@ -1486,6 +1487,11 @@ function crearEspacio() {
       ok(t);
     }, undefined, () => ok(null)));
   }
+  // Si createImageBitmap falla con un archivo (un navegador que no lo soporta bien aunque diga que sí), se prueba una
+  // vez con <img> antes de rendirse
+  const cargarImagen = archivo => cargadorBitmap
+    ? cargarCon(cargadorBitmap, archivo).then(t => t || cargarCon(cargadorImg, archivo))
+    : cargarCon(cargadorImg, archivo);
   const pedidas = new Map();
   function loadTex(name) {
     if (!pedidas.has(name)) pedidas.set(name, WEBP.has(name) ? cargarImagen(name.replace(/\.jpg$/, ".webp")).then(t => t || cargarImagen(name)) : cargarImagen(name));
@@ -2254,7 +2260,8 @@ function crearEspacio() {
     procesarPuntero();
     const ahora = performance.now();
     const animada = fly || movida || (solar && playing) || lvl === "tierra";
-    if (hayModal() ? !sucio : !(animada || sucio || ahora - ultimoDibujo > 500)) return;
+    // Con un modal no se dibuja salvo un vuelo de cámara (la entrada a La Tierra vuela detrás del selector de modo)
+    if (hayModal() ? !(sucio || fly) : !(animada || sucio || ahora - ultimoDibujo > 500)) return;
     sucio = false; ultimoDibujo = ahora;
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);
@@ -2273,6 +2280,7 @@ function crearEspacio() {
   });
   canvas.addEventListener("webglcontextrestored", () => {
     clearTimeout(esperaContexto); esperaContexto = null;
+    sucio = true;   // dibujar ya, aunque la escala esté quieta
     // Si el contexto volvió tarde y el aviso ya salió, se quita: la vista funciona otra vez
     if (avisoContexto) { avisoContexto = false; Aviso.ocultar(); }
   });
