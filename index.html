@@ -1460,11 +1460,35 @@ function crearEspacio() {
   /* Texturas reales (mapas de NASA y Planet Pixel Emporium). Se piden antes de construir nada, así bajan mientras el hilo
      principal arma la escena. Cada imagen se pide una sola vez: la Tierra del sistema solar y la de "La Tierra" comparten
      las suyas. Las texturas procedimentales quedan solo como respaldo si una imagen no llega. */
-  const loader = new THREE.TextureLoader();
+  // Las imágenes se decodifican fuera del hilo principal con createImageBitmap (R6), ya volteadas: la textura lleva
+  // flipY = false porque WebGL no voltea un ImageBitmap. Safari antes del 17 y Firefox antes del 98 no aceptan bien las
+  // opciones de createImageBitmap; ahí se usa el cargador de siempre (<img>).
+  // Las más pesadas tienen una copia WebP (herramientas/publicar_webp.py); si el navegador no la abre, se pide el JPG.
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
+  const usaBitmap = (() => {
+    if (typeof createImageBitmap !== "function" || typeof fetch !== "function") return false;
+    const ua = navigator.userAgent, ff = ua.match(/Firefox\/(\d+)/);
+    if (ff) return +ff[1] >= 98;
+    if (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|CriOS|FxiOS|Android/.test(ua) || /iP(hone|ad|od)/.test(ua)) {
+      const v = ua.match(/Version\/(\d+)/) || ua.match(/ OS (\d+)_/);
+      return !!v && +v[1] >= 17;
+    }
+    return true;
+  })();
+  const cargador = usaBitmap ? new THREE.ImageBitmapLoader().setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none" }) : new THREE.TextureLoader();
+  const WEBP = new Set(["earth_day.jpg", "earth_night.jpg", "earth_spec.jpg", "earth_clouds.jpg", "jupiter.jpg", "mars.jpg", "pluto.jpg", "pluto_bump.jpg", "sun.jpg"]);
+  function cargarImagen(archivo) {
+    return new Promise(ok => cargador.load(`tex/${archivo}`, img => {
+      const t = img.isTexture ? img : new THREE.Texture(img);
+      if (!img.isTexture) { t.flipY = false; t.needsUpdate = true; }
+      t.format = /\.png$/.test(archivo) ? THREE.RGBAFormat : THREE.RGBFormat;   // como TextureLoader: sin alfa para JPG y WebP opacos
+      t.anisotropy = Math.min(8, maxAniso);
+      ok(t);
+    }, undefined, () => ok(null)));
+  }
   const pedidas = new Map();
   function loadTex(name) {
-    if (!pedidas.has(name)) pedidas.set(name, new Promise(ok => loader.load(`tex/${name}`, t => { t.anisotropy = Math.min(8, maxAniso); ok(t); }, undefined, () => ok(null))));
+    if (!pedidas.has(name)) pedidas.set(name, WEBP.has(name) ? cargarImagen(name.replace(/\.jpg$/, ".webp")).then(t => t || cargarImagen(name)) : cargarImagen(name));
     return pedidas.get(name);
   }
   const REAL = {
@@ -1663,6 +1687,7 @@ function crearEspacio() {
   // Tierra: día iluminado, luces de ciudades en el lado nocturno y reflejo del Sol en los océanos
   alLlegar(Promise.all(TEX_TIERRA.map(loadTex)), ([day, night, spec, clouds]) => {
     if (!day || !night || !spec) { ponerMapa(byId.tierra, texturaProcedural(byId.tierra)); nubesProcedurales(); return; }
+    byId.tierra.mesh.material.dispose();   // el material provisional (su mapa blanco es compartido y se queda)
     byId.tierra.mesh.material = new THREE.ShaderMaterial({
       uniforms: { dayMap: { value: day }, nightMap: { value: night }, specMap: { value: spec } },
       vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vWp;
@@ -1692,6 +1717,7 @@ function crearEspacio() {
     const sat = byId.saturno;
     sat._ring.visible = true;
     if (!t) { sat._ring.material.map = new THREE.CanvasTexture(Tex.rings()); sat._ring.material.needsUpdate = true; return; }
+    sat._ring.material.dispose();
     sat._ring.material = new THREE.ShaderMaterial({
       uniforms: { map: { value: t }, pc: { value: sat.world }, pr: { value: sat.r } },
       vertexShader: `varying vec2 vUv; varying vec3 vWp;
