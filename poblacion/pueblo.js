@@ -94,11 +94,22 @@ const Pueblo = (() => {
     const pisadas = new Uint8Array(R), llegadas = new Uint8Array(R);
     // Medidas de cada paso: las celdas donde tu pueblo es mayoría ("tus celdas"), totales y lo que siguen los detectores
     const mias = new Int32Array(N);
-    let nMias = 0, total = 0, herencia = 0, tSed = 0, tFrio = 0, tEnf = 0, cap = 0;
-    let capMax = 0, totMax = 0, sedMax = 0, frioMax = 0, enfMax = 0, agriDesde = null;
+    let nMias = 0, total = 0, herencia = 0, tSed = 0, tFrio = 0, tEnf = 0;
+    let totMax = 0, sedMax = 0, frioMax = 0, enfMax = 0, agriDesde = null;
+    // Sequía: la capacidad de cada celda en su máximo desde la última sequía, y las sumas de ahora y de esos máximos sobre las
+    // mismas celdas (tus celdas de este paso), así perder celdas no parece una sequía
+    const capMax = new Float64Array(N);
+    let cap = 0, capTope = 0;
 
     function medir() {
-      nMias = 0; total = 0; herencia = 0; tSed = 0; tFrio = 0; tEnf = 0;
+      if (estado === "extinto") return;
+      herencia = 0;
+      if (estado !== "vivo") {
+        // Disuelto: ya no hay tuyos; solo se sigue la herencia (para avisar si se extingue)
+        for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; if (pob[i] > 0) herencia += linaje[i] * pob[i]; }
+        return;
+      }
+      nMias = 0; total = 0; tSed = 0; tFrio = 0; tEnf = 0;
       for (let k = 0; k < tierra.length; k++) {
         const i = tierra[k], p = pob[i];
         if (p <= 0) continue;
@@ -114,13 +125,17 @@ const Pueblo = (() => {
         if (r >= 0) { pisadas[r] = 1; if (t >= P.establecida) llegadas[r] = 1; }
         if (t > 0.5 * p) mias[nMias++] = i;
       }
-      cap = 0;
-      if (disponible("sequia")) for (let h = 0; h < nMias; h++) cap += motor.capacidad(mias[h]);
+      cap = 0; capTope = 0;
+      if (disponible("sequia")) for (let h = 0; h < nMias; h++) {
+        const i = mias[h], k = motor.capacidad(i);
+        if (k > capMax[i]) capMax[i] = k;
+        cap += k; capTope += capMax[i];
+      }
     }
     const foto = () => ({ pueblo: pb.total(), herencia: pb.herencia() });
     function cerrarRegistro(f) {
       const ult = registro[registro.length - 1];
-      if (ult && ult.despues === null) ult.despues = f || { pueblo: total, herencia };
+      if (ult && ult.despues === null) ult.despues = f || foto();
     }
     // Pasa a los modificadores del motor la suma de los efectos activos y los rasgos
     function aplicar() {
@@ -149,7 +164,7 @@ const Pueblo = (() => {
 
     // --- Detectores: devuelven null o lo que la decisión necesita recordar ---
     const DETECTORES = {
-      sequia: () => cap < (1 - reglas.sequiaCaida) * capMax ? {} : null,
+      sequia: () => nMias > 0 && cap < (1 - reglas.sequiaCaida) * capTope ? {} : null,
       frontera() {
         for (let h = 0; h < nMias; h++) {
           const i = mias[h];
@@ -221,7 +236,7 @@ const Pueblo = (() => {
       ultima = año;
       if (extra.par !== undefined) pares[extra.par] = 1;
       if (extra.especie) especiesVistas.add(extra.especie);
-      if (m.id === "sequia") capMax = cap;
+      if (m.id === "sequia") capMax.fill(0);   // los máximos vuelven a contar desde ahora
       const decision = { id: m.id, titulo: m.titulo, texto: m.texto, año: Math.round(año),
         opciones: m.opciones.map(o => ({ id: o.id, texto: o.texto, detalle: o.detalle })) };
       pendiente = { momento: m, decision, especie: extra.especie || null, causa: extra.causa || null };
@@ -231,15 +246,19 @@ const Pueblo = (() => {
     function revisar() {
       medir();
       revisarEstado();
-      if (motor.terminado()) cerrarRegistro();
-      if (estado !== "vivo" || pendiente || motor.terminado()) return null;
+      if (motor.terminado()) {
+        // Al final, una decisión que quedó abierta se descarta
+        pendiente = null;
+        cerrarRegistro();
+        return null;
+      }
+      if (estado !== "vivo" || pendiente) return null;
       const año = motor.año();
       // Vencen los efectos
       let cambio = false;
       for (let k = activos.length - 1; k >= 0; k--) if (activos[k].hasta <= año) { activos.splice(k, 1); cambio = true; }
       if (cambio) aplicar();
       // Máximos y plazos que siguen los detectores
-      if (cap > capMax) capMax = cap;
       if (total > totMax) { totMax = total; sedMax = tSed; frioMax = tFrio; enfMax = tEnf; }
       let agri = false;
       for (let h = 0; h < nMias && !agri; h++) agri = (innov[mias[h]] & AGRICULTURA) !== 0;
@@ -262,6 +281,7 @@ const Pueblo = (() => {
 
     function elegir(opcionId) {
       if (!pendiente) throw new Error("No hay ninguna decisión pendiente");
+      if (motor.terminado()) { pendiente = null; throw new Error("La partida ya terminó"); }
       const m = pendiente.momento, o = m.opciones.find(x => x.id === opcionId);
       if (!o) throw new Error(`La decisión "${m.id}" no tiene la opción "${opcionId}"`);
       const año = motor.año(), e = efectos.get(o), antes = foto();
@@ -306,7 +326,7 @@ const Pueblo = (() => {
     }
     aplicar();
     medir();
-    capMax = cap; totMax = total; sedMax = tSed; frioMax = tFrio; enfMax = tEnf;
+    totMax = total; sedMax = tSed; frioMax = tFrio; enfMax = tEnf;
 
     return {
       revisar,

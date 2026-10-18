@@ -20,7 +20,7 @@ function espiar(m) {
 }
 function partida(mundo, historia, ids, { reglas, params, semilla = 1 } = {}) {
   const m = espiar(Motor.crear(mundo, historia, { semilla, params: { ...SIN_AZAR, ...params }, pueblo: { origen: 0 } }));
-  const pb = Pueblo.crear(m, historia, catalogo(ids, reglas), { origen: 0 });
+  const pb = Pueblo.crear(m, historia, catalogo(ids, reglas), { origen: 0, params: { ...SIN_AZAR, ...params } });
   return { m, pb };
 }
 // Avanza paso a paso (revisando después de cada uno) hasta que salga una decisión o pasen `años`
@@ -303,13 +303,79 @@ test("sin arcaicos, sin costa ni domesticables, los detectores no se disparan ni
   const m = Motor.crear(mundo, h, { semilla: 3, pueblo: { origen: 0 } });
   const pb = Pueblo.crear(m, h, { ...PUEBLO, reglas: { ...PUEBLO.reglas, intervalo: [[-1e9, 0]] } }, { origen: 0 });
   const vistas = [];
+  let conVida = 0;
   for (let s = 0; s < 2000 && !m.terminado(); s++) {
     m.avanzar(10);
     const d = pb.revisar();
+    if (pb.estado() === "vivo" && m.pueblo().total() > 0) conVida++;
     if (d) { vistas.push(d.id); pb.elegir(d.opciones[0].id); }
   }
   for (const id of vistas) assert.ok(["sequia", "frontera", "cuello"].includes(id), id);
+  assert.ok(conVida >= 1000, `${conVida} pasos con tu pueblo vivo`);
   assert.equal(pb.estado(), "vivo");
+});
+
+test("perder celdas sin que baje su capacidad no es una sequía", () => {
+  // Tu pueblo en una punta de la tira y muchos más en la otra, sin crecimiento: los otros entran en tus celdas y te quitan la
+  // mayoría, pero la capacidad de la estepa no cambia
+  const h = historiaDePrueba({ origenes: [origen(-4, 3000), origen(4, 30000)] });
+  const params = { crecimiento: [0, 0, 0, 0, 0], exploracion: 0.01 };
+  const { m, pb } = partida(mundoDePrueba(["0000000", "0444440", "0000000"], { lonOeste: -7 }), h, ["sequia"], { params });
+  const pbm = m.pueblo(), mias = () => Array.from(pbm.celdas()).filter(i => pbm.mayoria(i)).length;
+  let maximo = 0, perdidas = false;
+  for (let s = 0; s < 300; s++) {
+    m.avanzar(10);
+    const n = mias();
+    if (n > maximo) maximo = n; else if (n < maximo) perdidas = true;
+    assert.equal(pb.revisar(), null, `sequía en el año ${m.año()}`);
+  }
+  assert.ok(perdidas, "tu pueblo nunca perdió celdas");
+});
+
+test("al terminar la partida se descarta la decisión pendiente", () => {
+  const h = historiaDePrueba({ inicio: 1990, origenes: [origen(0)] });
+  const { m, pb } = partida(conDesierto(), h, ["frontera"]);
+  assert.ok(hastaDecision(m, pb, 20));
+  while (!m.terminado()) m.avanzar(m.pasoMax());
+  assert.equal(pb.revisar(), null);
+  assert.equal(pb.pendiente(), null);
+  assert.throws(() => pb.elegir("esperar"), Error);
+  const r = pb.registro();
+  assert.equal(r.length, 1);
+  assert.ok(r[0].despues !== null);
+  assert.equal(pb.resumen().hasta, 2026);
+});
+
+test("las defensas multiplican la epidemia sumada", () => {
+  // Bosque agrícola (no seco ni frío): un cuello de botella ahí es por enfermedad y da defensas
+  const h = historiaDePrueba({ inicio: -9600, domesticables: [{ id: "todo", nombre: "Todo", riqueza: 1, cajas: [[-90, 90, -180, 180]] }],
+    origenes: [origen(0, 6000)] });
+  const params = { agricultura: 1, exploracion: 0, presion: 0, densidadCiudad: 0.01 };
+  const { m, pb } = partida(mundoDePrueba(["00000", "05550", "00000"]), h, ["agricultura", "cuello", "ciudades"], { params });
+  const i = m.celdaDe(0, 0), elegida = { agricultura: "adoptar", ciudades: "fundar", cuello: "seguir" };
+  // Tras 500 años de campos (la gente ya creció con ellos), se pierde casi todo
+  let rasgo = null, cuello = false, campos = null;
+  for (let s = 0; s < 500 && !(cuello && pb.registro().some(r => r.momento === "ciudades")); s++) {
+    m.avanzar(10);
+    if (campos === null && (m.celdas.innovaciones[i] & AGRICULTURA)) campos = m.año();
+    if (!cuello && campos !== null && m.año() >= campos + 500) { m.perderPueblo(0.8); cuello = true; }
+    const d = pb.revisar();
+    if (d) { const r = pb.elegir(elegida[d.id]); if (d.id === "cuello") rasgo = r.rasgo; }
+  }
+  assert.equal(rasgo && rasgo.id, "defensas");
+  assert.ok(pb.registro().some(r => r.momento === "ciudades"));
+  assert.equal(m.ultimos.epidemia, 0.00015);
+});
+
+test("en la frontera, cada par de regiones cuenta una vez", () => {
+  // Tu pueblo en el oeste, con un desierto al lado y la región este a dos celdas
+  const h = historiaDePrueba({ origenes: [origen(-2)], regiones: [
+    { id: "oeste", nombre: "Oeste", hito: null, cajas: [[-90, 90, -180, 1]] }, { id: "este", nombre: "Este", hito: null, cajas: [[-90, 90, 1, 180]] }] });
+  const { m, pb } = partida(mundoDePrueba(["0000000", "0344440", "0000000"], { lonOeste: -7 }), h, ["frontera"]);
+  let n = 0;
+  for (let k = 0; k < 4; k++) { const d = hastaDecision(m, pb, 3000); if (d) { n++; pb.elegir("esperar"); } }
+  assert.equal(n, 2);
+  assert.ok(n < PUEBLO.momentos.find(x => x.id === "frontera").limite);
 });
 
 test("elegir sin pendiente o con una opción inexistente lanza un error", () => {
