@@ -33,3 +33,39 @@ test("la comparación dice si cayó dentro del rango o cuánto antes o después"
   assert.equal(PanelTierra.comparar(1759.6, [1760, 1830]), "dentro del rango real");
   assert.equal(PanelTierra.comparar(1831, [1760, 1830]), "1 año después");
 });
+
+const Partida = require("../poblacion/partida.js");
+const año = a => Partida.textoAño(a, 2026);
+
+test("el registro de una decisión dice qué elegiste, cuándo y cómo cambió tu pueblo", () => {
+  const e = { momento: "frontera", titulo: "Una tierra nueva", opcion: "Cruzar ahora", opcionId: "cruzar", texto: "", fuente: "",
+    año: 2026 - 68000, antes: { pueblo: 12000, herencia: 12000 }, despues: { pueblo: 31000, herencia: 40000 } };
+  assert.equal(PanelTierra.textoRegistro(e, año), "Elegiste «Cruzar ahora» (hace 68.000 años). Tu pueblo: 12.000 → 31.000 personas.");
+  assert.equal(PanelTierra.textoRegistro({ ...e, despues: null }, año), "Elegiste «Cruzar ahora» (hace 68.000 años). Tu pueblo: 12.000 personas al elegir.");
+  assert.equal(PanelTierra.textoRegistro({ ...e, antes: { pueblo: 9e5 }, despues: { pueblo: 2.1e6 } }, año),
+    "Elegiste «Cruzar ahora» (hace 68.000 años). Tu pueblo: 900.000 → 2,1 millones de personas.");
+});
+
+test("el registro del Nacimiento no tiene un antes", () => {
+  const e = { momento: "nacimiento", titulo: "¿Dónde nace tu pueblo?", opcion: "Este de África", opcionId: "este", texto: "", fuente: "",
+    año: 2026 - 300000, antes: null, despues: null };
+  assert.equal(PanelTierra.textoRegistro(e, año), "Elegiste «Este de África» (hace 300.000 años).");
+  assert.equal(PanelTierra.textoRegistro({ ...e, despues: { pueblo: 9500, herencia: 9500 } }, año),
+    "Elegiste «Este de África» (hace 300.000 años). Después, tu pueblo tenía 9500 personas.");
+});
+
+test("el resumen final cuenta cuánto vivió tu pueblo, adónde llegó, sus rasgos y su herencia", () => {
+  const r = { estado: "vivo", desde: 2026 - 300000, hasta: 2026, regiones: ["África", "Asia occidental", "Europa"],
+    rasgos: ["Adaptados al frío", "Herencia neandertal"], pueblo: 2.1e6, herencia: 3.4e8, conLinaje: 1.2e9, decisiones: 6 };
+  assert.equal(PanelTierra.textoFinal(r, año),
+    "Tu pueblo vivió desde hace 300.000 años hasta 2026. Tomaste 6 decisiones. Se estableció en África, Asia occidental y Europa. " +
+    "Ganó estos rasgos: Adaptados al frío y Herencia neandertal. Al final eran 2,1 millones de personas. " +
+    "Hoy, 1,2 mil millones de personas tienen algo de su linaje; su herencia equivale a 340 millones de personas.");
+  assert.equal(PanelTierra.textoFinal({ ...r, estado: "disuelto", hasta: 2026 - 42000, regiones: ["África"], rasgos: ["Resistentes a la sed"], pueblo: 0 }, año),
+    "Tu pueblo vivió desde hace 300.000 años hasta hace 42.000 años, cuando se mezcló del todo con sus vecinos. Tomaste 6 decisiones. " +
+    "Se estableció en África. Ganó estos rasgos: Resistentes a la sed. " +
+    "Hoy, 1,2 mil millones de personas tienen algo de su linaje; su herencia equivale a 340 millones de personas.");
+  assert.equal(PanelTierra.textoFinal({ ...r, estado: "extinto", hasta: 2026 - 150000, regiones: [], rasgos: [], pueblo: 0, herencia: 0, conLinaje: 0, decisiones: 1 }, año),
+    "Tu pueblo vivió desde hace 300.000 años hasta hace 150.000 años, cuando se extinguió. Tomaste 1 decisión. " +
+    "No llegó a establecerse en ninguna región. No ganó rasgos. Nadie de hoy desciende de tu pueblo.");
+});
