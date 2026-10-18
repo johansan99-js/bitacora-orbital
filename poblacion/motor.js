@@ -872,7 +872,10 @@ const Motor = (() => {
       hitos: () => E.logros.slice(),
       capacidad: i => capacidad(E, i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES, sr[i]),
       celdaDe,
-      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma, saberRecolector: sr, arcaicos: arc },
+      // Solo lectura. `bioma` es el tipo de tierra según el clima de ahora; `area`, la superficie de cada celda en km²; `especie`, el
+      // índice de historia.arcaicos (−1 sin arcaicos); `domestica`, el de historia.domesticables (−1 si no hay); `costa`, 1 en la costa
+      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma, saberRecolector: sr, arcaicos: arc,
+        especie, domestica, area: areaT, bioma: E.bio, costa },
       poblacionPorRegion() {
         const t = new Float64Array(historia.regiones.length);
         for (const i of tierra) if (region[i] >= 0) t[region[i]] += pob[i];
