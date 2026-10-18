@@ -24,7 +24,9 @@
 <link rel="preload" as="image" href="tex/saturn_ring.png" crossorigin="anonymous">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!-- Las fuentes no frenan el primer pintado: la hoja se aplica al llegar (mientras, las de respaldo de --f-*) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"></noscript>
 <style>
 /* Layout: lienzo 3D a pantalla completa; marca arriba a la izquierda, controles arriba a la derecha,
    muelle de planetas abajo y ficha del astro a la derecha (hoja inferior en móvil). Diseño oscuro por elección. */
@@ -246,6 +248,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 
 /* Escalas del viaje: escalera vertical a la izquierda */
 #fade { position: fixed; inset: 0; background: var(--void); opacity: 0; pointer-events: none; }
+/* Mientras se arma la escena 3D (se quita en el primer cuadro) */
+#cargando {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none;
+  font-size: 14px; letter-spacing: 0.06em; color: var(--muted); animation: latido 1.6s ease-in-out infinite alternate;
+}
+@keyframes latido { from { opacity: 0.45; } to { opacity: 1; } }
 .zoom {
   position: fixed; left: calc(14px + env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%);
   display: grid; gap: 2px; padding: 8px 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(8px);
@@ -417,6 +425,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 }
 @media (prefers-reduced-motion: reduce) {
   .lightbar i, .q-progress i, .hint { transition: none; }
+  #cargando { animation: none; }
 }
 </style>
 <div id="app">
@@ -424,6 +433,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   <canvas id="scene" aria-label="Vista 3D del sistema solar. Arrastra para girar, rueda o pellizco para acercar."></canvas>
   <div id="labels"></div>
   <div id="fade" aria-hidden="true"></div>
+  <div id="cargando" role="status">Preparando el universo…</div>
 
   <nav class="zoom" id="zoom" aria-label="Escala del viaje"></nav>
 
@@ -627,7 +637,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 const Aviso = (() => {
   const $ = id => document.getElementById(id);
   let listo = false;
+  // El indicador de carga se va con el primer cuadro de la vista 3D, o cuando un aviso explica por qué no hay vista
+  function cargado() { $("cargando").hidden = true; }
   function mostrar(texto, { recargar = false } = {}) {
+    cargado();
     $("aviso-app").hidden = false;   // primero visible y después el texto, para que los lectores de pantalla lo anuncien
     $("aviso-texto").textContent = texto;
     $("aviso-recargar").hidden = !recargar;
@@ -639,7 +652,7 @@ const Aviso = (() => {
   addEventListener("load", () => {
     if (!listo) mostrar("La página no terminó de cargar. Revisa tu conexión y vuelve a intentarlo.", { recargar: true });
   });
-  return { mostrar, ocultar, listo() { listo = true; } };
+  return { mostrar, ocultar, cargado, listo() { listo = true; } };
 })();
 </script>
 <script>
@@ -1434,6 +1447,7 @@ function espacioNulo() {
     apuntar() {}
   };
   document.getElementById("hint").hidden = true;
+  Aviso.cargado();
   return api;
 }
 function crearEspacio() {
@@ -2135,7 +2149,7 @@ function crearEspacio() {
       if (++fallosSeguidos === 120) Aviso.mostrar("La vista 3D dejó de responder. Puedes seguir usando el cuestionario, las misiones y las fichas, o recargar la página.", { recargar: true });
     }
     // Tras el primer cuadro empieza el trabajo de fondo
-    if (primerCuadro) { primerCuadro = false; enReposo(seguirCola); }
+    if (primerCuadro) { primerCuadro = false; Aviso.cargado(); enReposo(seguirCola); }
   }
   function dibujar() {
     const dt = Math.min(clock.getDelta(), 0.1), days = playing ? dt * SPEEDS[speedIdx][0] : 0;
