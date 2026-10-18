@@ -53,10 +53,15 @@ const PanelTierra = (() => {
     return t;
   }
   // Resumen del final (ver Pueblo.resumen, con `regiones` ya convertidas a nombres)
+  // (si se disolvió y después se extinguió su linaje, `disueltoEn` es el año de la disolución y `hasta` el de la extinción)
   function textoFinal(r, textoAño) {
     const fin = { disuelto: ", cuando se mezcló del todo con sus vecinos", extinto: ", cuando se extinguió" }[r.estado] || "";
+    const enAño = a => { const t = textoAño(a); return /^hace /.test(t) ? t : `en ${t}`; };
+    const vivio = r.estado === "extinto" && r.disueltoEn != null
+      ? `Tu pueblo vivió desde ${textoAño(r.desde)} hasta ${textoAño(r.disueltoEn)}, cuando se mezcló del todo con sus vecinos. Su linaje se extinguió ${enAño(r.hasta).replace(/\.$/, "")}.`
+      : `Tu pueblo vivió desde ${textoAño(r.desde)} hasta ${textoAño(r.hasta)}${fin}.`;
     const partes = [
-      `Tu pueblo vivió desde ${textoAño(r.desde)} hasta ${textoAño(r.hasta)}${fin}.`,
+      vivio,
       `Tomaste ${r.decisiones} ${r.decisiones === 1 ? "decisión" : "decisiones"}.`,
       r.regiones.length ? `Se estableció en ${lista(r.regiones)}.` : "No llegó a establecerse en ninguna región.",
       r.rasgos.length ? `Ganó estos rasgos: ${lista(r.rasgos)}.` : "No ganó rasgos."
@@ -129,7 +134,8 @@ const PanelTierra = (() => {
     }
 
     // Avisos: primero la tarjeta de tu pueblo (una decisión o un cambio de estado), después los hitos pendientes.
-    // actual: { decision, resultado } (resultado = lo que devolvió elegir, null hasta elegir) o { estado }
+    // actual: { decision, resultado } (resultado = lo que devolvió elegir, null hasta elegir) o { estado, año }. En `estados`
+    // esperan los cambios de estado y la tarjeta del Nacimiento (una decisión ya elegida)
     let actual = null, estados = [];
 
     function mostrarHito() {
@@ -166,7 +172,9 @@ const PanelTierra = (() => {
       $("t-dec-real").hidden = !!dec && !r;
       $("t-dec-eleccion").hidden = !r;
       $("t-dec-eleccion").textContent = r
-        ? `Elegiste «${r.opcion.texto}».` + (r.rasgo ? ` Tu pueblo ganó un rasgo: ${r.rasgo.nombre}. ${r.rasgo.texto}` : "") : "";
+        ? `Elegiste «${r.opcion.texto}».` + (r.rasgo ? ` Tu pueblo ganó un rasgo: ${r.rasgo.nombre}. ${r.rasgo.texto}`
+          : dec.id === "cuello" ? (r.causa ? " No quedó un rasgo nuevo: tu pueblo ya tenía esa adaptación." : " No quedó un rasgo: la causa no fue clara.") : "")
+        : "";
       const real = r ? r.real : est ? est.real : null;
       $("t-dec-real-titulo").hidden = $("t-dec-real-texto").hidden = !real;
       $("t-dec-real-texto").textContent = real ? real.texto : "";
@@ -174,6 +182,8 @@ const PanelTierra = (() => {
         .filter(Boolean).join(" · ");
       $("t-dec-fuente").textContent = fuente;
       $("t-dec-fuente").hidden = !fuente;
+      // Al extinguirse, el resumen de tu pueblo está en la Bitácora
+      $("t-dec-bitacora").hidden = actual.estado !== "extinto";
     }
     // Muestra el aviso que toca, si no hay uno a la vista. Devuelve si quedó alguno abierto.
     function mostrarAvisos() {
@@ -205,7 +215,13 @@ const PanelTierra = (() => {
     function seguir() {
       if (actual || decisionViva()) {
         // La tarjeta de decisión no se cierra sin elegir
-        if (!actual || (actual.decision && !actual.resultado)) return void mostrarAvisos();
+        if (!actual || (actual.decision && !actual.resultado)) {
+          mostrarAvisos();
+          // Si el foco quedó en otro lado (por ejemplo, al cerrar un modal), vuelve a las opciones
+          const b = !tarjeta.hidden && !$("t-dec-opciones").hidden && $("t-dec-opciones").querySelector("button");
+          if (b && !hayModal()) b.focus();
+          return;
+        }
         actual = null;
         const tenia = tarjeta.contains(document.activeElement);
         tarjeta.hidden = true;
@@ -258,7 +274,22 @@ const PanelTierra = (() => {
         return li;
       }) : [el("li", "no", "Todavía no hay hitos en esta partida.")]));
     }
-    boton.addEventListener("click", () => { pintarBitacora(); abrirModal("bitacora"); });
+    // Al cerrar la Bitácora, el foco vuelve a quien la abrió (si sigue a la vista y no queda otro modal abierto)
+    let abridorBitacora = null;
+    function abrirBitacora() {
+      const a = document.activeElement;
+      abridorBitacora = a && a !== document.body ? a : null;
+      pintarBitacora(); abrirModal("bitacora");
+    }
+    boton.addEventListener("click", abrirBitacora);
+    $("t-dec-bitacora").addEventListener("click", abrirBitacora);
+    new MutationObserver(() => {
+      if (!$("bitacora").hidden || hayModal()) return;
+      // (el foco puede seguir en el botón de cerrar ya oculto hasta que el navegador lo corrija)
+      const a = document.activeElement;
+      if (a && a !== document.body && !$("bitacora").contains(a)) return;
+      if (abridorBitacora && abridorBitacora.isConnected && abridorBitacora.offsetParent !== null) abridorBitacora.focus();
+    }).observe($("bitacora"), { attributes: true, attributeFilter: ["hidden"] });
 
     partida.alEvento(e => {
       if (e.tipo === "hito" || e.tipo === "decision") mostrarAvisos();
@@ -286,10 +317,20 @@ const PanelTierra = (() => {
       return b;
     }));
     function empezar(m, origen) {
+      eligio = true;
       modo.hidden = true;
       partida.nueva(undefined, { modo: m, origen });
-      // El foco vuelve a ▶, o al modal que quedó abierto detrás (nunca detrás de un modal)
-      (document.querySelector(".modal:not([hidden]) .sheet-close") || play).focus();
+      if (m === "pueblo") {
+        // Lo que se sabe de la cuna, como tras cualquier decisión; la partida espera en pausa hasta "Seguir"
+        const o = nacimiento.opciones[origen];
+        partida.setReproduciendo(false);
+        estados.push({ decision: { id: nacimiento.id, titulo: nacimiento.titulo, texto: nacimiento.texto, año: Math.round(partida.motor().año()), opciones: [] },
+          resultado: { opcion: { id: o.id, texto: o.texto }, real: { ...nacimiento.real }, rasgo: null } });
+        mostrarAvisos();
+      }
+      // El foco va al modal que quedó abierto detrás (nunca detrás de un modal), o a la tarjeta del Nacimiento, o a ▶
+      const otro = document.querySelector(".modal:not([hidden]) .sheet-close");
+      if (otro) otro.focus(); else if (!tarjeta.contains(document.activeElement)) play.focus();
     }
     $("t-modo-historia").addEventListener("click", () => empezar("historia"));
     btnPueblo.addEventListener("click", () => {
@@ -297,8 +338,12 @@ const PanelTierra = (() => {
       origenes.querySelector("button").focus();
     });
     // Al cerrar sin elegir (botón, Escape o clic afuera), el foco vuelve a quien lo abrió o a ▶, salvo que quede otro modal abierto
-    let abridor = null;
+    // Mientras se elige, la partida se pausa; si se cierra sin elegir, sigue como estaba
+    let abridor = null, eligio = false, jugabaAntes = false;
     function elegirModo() {
+      eligio = false;
+      jugabaAntes = partida.reproduciendo();
+      partida.setReproduciendo(false);
       const a = document.activeElement;
       abridor = a && a !== document.body && !modo.contains(a) ? a : null;
       origenes.hidden = true; btnPueblo.setAttribute("aria-expanded", "false");
@@ -307,6 +352,8 @@ const PanelTierra = (() => {
     }
     new MutationObserver(() => {
       if (!modo.hidden) return;
+      if (!eligio && jugabaAntes) reanudar();
+      jugabaAntes = false;
       const a = document.activeElement;
       if (a && a !== document.body && !modo.contains(a)) return;   // ya tiene adónde ir (por ejemplo, ▶ al empezar)
       const otro = document.querySelector(".modal:not([hidden]) .sheet-close");

@@ -516,7 +516,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
       <h3 id="t-dec-real-titulo">En la realidad</h3>
       <p id="t-dec-real-texto"></p>
       <p class="t-fuente" id="t-dec-fuente"></p>
-      <div class="q-foot"><button class="chip primary" id="t-dec-seguir" type="button">Seguir</button></div>
+      <div class="q-foot"><button class="chip" id="t-dec-bitacora" type="button" hidden>Ver la Bitácora</button><button class="chip primary" id="t-dec-seguir" type="button">Seguir</button></div>
     </div>
   </section>
 
@@ -2208,7 +2208,8 @@ const Space = (() => {
   const velocidad = { solar: 2, tierra: 2 };
   let playing = true;
   function showPlaying(p) {
-    $("ico-pause").hidden = !p; $("ico-play").hidden = p;
+    // Son SVG: no tienen la propiedad `hidden`, así que se usa el atributo
+    $("ico-pause").toggleAttribute("hidden", !p); $("ico-play").toggleAttribute("hidden", p);
     $("btn-play").setAttribute("aria-label", p ? "Pausar el tiempo" : "Reanudar el tiempo");
   }
   function tickDate() {

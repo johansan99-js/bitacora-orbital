@@ -69,3 +69,16 @@ test("el resumen final cuenta cuánto vivió tu pueblo, adónde llegó, sus rasg
     "Tu pueblo vivió desde hace 300.000 años hasta hace 150.000 años, cuando se extinguió. Tomaste 1 decisión. " +
     "No llegó a establecerse en ninguna región. No ganó rasgos. Nadie de hoy desciende de tu pueblo.");
 });
+
+test("si tu pueblo se disolvió y después se extinguió su linaje, el resumen dice los dos años", () => {
+  const r = { estado: "extinto", desde: 2026 - 300000, hasta: 2026 - 30000, disueltoEn: 2026 - 42000, regiones: ["África"], rasgos: [],
+    pueblo: 0, herencia: 0, conLinaje: 0, decisiones: 4 };
+  assert.equal(PanelTierra.textoFinal(r, año),
+    "Tu pueblo vivió desde hace 300.000 años hasta hace 42.000 años, cuando se mezcló del todo con sus vecinos. " +
+    "Su linaje se extinguió hace 30.000 años. Tomaste 4 decisiones. Se estableció en África. No ganó rasgos. Nadie de hoy desciende de tu pueblo.");
+  assert.equal(PanelTierra.textoFinal({ ...r, disueltoEn: -5000, hasta: -3000 }, año),
+    "Tu pueblo vivió desde hace 300.000 años hasta 5000 a. C., cuando se mezcló del todo con sus vecinos. " +
+    "Su linaje se extinguió en 3000 a. C. Tomaste 4 decisiones. Se estableció en África. No ganó rasgos. Nadie de hoy desciende de tu pueblo.");
+  // Extinto sin haberse disuelto: como antes
+  assert.match(PanelTierra.textoFinal({ ...r, disueltoEn: null, hasta: 2026 - 150000 }, año), /^Tu pueblo vivió desde hace 300\.000 años hasta hace 150\.000 años, cuando se extinguió\. /);
+});
