@@ -67,7 +67,7 @@ const PUEBLO = (() => {
                 fuente: "Grün et al. (2005), Journal of Human Evolution 49; Lambeck et al. (2011), Quaternary Science Reviews 30" },
         opciones: [
           { id: "cruzar", texto: "Cruzar ya", detalle: "Te expandes y cruzas mares por 2.000 años; pierdes a parte de la gente.", efecto: { mods: { migracion: 4, cruce: 10 }, duracion: 2000, perder: 0.1 } },
-          { id: "esperar", texto: "Esperar en África", detalle: "Más seguros por 2.000 años, pero sin tierras nuevas.", efecto: { mods: { aptitud: [{ donde: {}, valor: 1.1 }] }, duracion: 2000 } }
+          { id: "esperar", texto: "Esperar en África", detalle: "Más seguros por 2.000 años, pero sin tierras nuevas.", efecto: { mods: { aptitud: [{ donde: {}, valor: 1.1 }], migracion: 0.5 }, duracion: 2000 } }
         ] },
 
       { id: "encuentro", limite: 2, titulo: "Otros humanos",

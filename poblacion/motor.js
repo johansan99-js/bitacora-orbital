@@ -59,7 +59,7 @@ const Motor = (() => {
     saberArcaico: 1550,      // umbral para desplazar a los humanos arcaicos (0 = se retiran enseguida)
     ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
     desplaza: 0.005,         // ritmo por año con que se retiran los arcaicos ante un saber mayor
-    asimila: 0.2,            // tu pueblo: por debajo de esta fracción de una celda, los tuyos se integran a los demás
+    asimila: 0.35,           // tu pueblo: por debajo de esta fracción de una celda, los tuyos se integran a los demás
     seleccion: 0.002         // tu pueblo: ritmo por año con que la aptitud cambia la parte de los tuyos en una celda
   };
   // Modificadores de tu pueblo que no cambian nada (los que falten en setModificadores toman estos valores)
