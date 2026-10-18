@@ -209,6 +209,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 .ladder p { margin: 0; color: #c4cbe0; font-size: 14px; }
 .modal-intro { margin: 0; color: var(--muted); font-size: 14px; }
 
+/* Aviso de la página (sin 3D, archivos que no cargaron, contexto WebGL perdido); debajo de las ventanas */
+.aviso-app {
+  position: fixed; left: 50%; transform: translateX(-50%); top: calc(76px + env(safe-area-inset-top, 0px)); z-index: 9;
+  box-sizing: border-box; width: max-content; max-width: min(560px, calc(100% - 32px));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--panel-solid); border: 1px solid var(--star); border-radius: var(--r); padding: 10px 12px 10px 14px;
+  font-size: 14px; line-height: 1.4; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.aviso-app p { margin: 0; flex: 1 1 16rem; }
+.aviso-app .aviso-botones { display: flex; gap: 6px; margin-left: auto; }
+
 .hint {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(118px + env(safe-area-inset-bottom, 0px));
   font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
@@ -391,6 +402,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 }
 </style>
 <div id="app">
+  <noscript><div class="aviso-app"><p>Bitácora Orbital necesita JavaScript para funcionar. Actívalo en tu navegador y vuelve a cargar la página.</p></div></noscript>
   <canvas id="scene" aria-label="Vista 3D del sistema solar. Arrastra para girar, rueda o pellizco para acercar."></canvas>
   <div id="labels"></div>
   <div id="fade" aria-hidden="true"></div>
@@ -583,7 +595,35 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
       <ol class="missions" id="m-list"></ol>
     </div>
   </div>
+
+  <div class="aviso-app" id="aviso-app" role="alert" hidden>
+    <p id="aviso-texto"></p>
+    <div class="aviso-botones">
+      <button class="chip primary" id="aviso-recargar" type="button" hidden>Recargar</button>
+      <button class="chip" id="aviso-cerrar" type="button">Cerrar</button>
+    </div>
+  </div>
 </div>
+<script>
+// Aviso en la página para lo que falla al cargar o mientras se usa. No depende de nada más, así que va primero.
+const Aviso = (() => {
+  const $ = id => document.getElementById(id);
+  let listo = false;
+  function mostrar(texto, { recargar = false } = {}) {
+    $("aviso-app").hidden = false;   // primero visible y después el texto, para que los lectores de pantalla lo anuncien
+    $("aviso-texto").textContent = texto;
+    $("aviso-recargar").hidden = !recargar;
+  }
+  function ocultar() { $("aviso-app").hidden = true; }
+  $("aviso-recargar").addEventListener("click", () => location.reload());
+  $("aviso-cerrar").addEventListener("click", ocultar);
+  // Red de seguridad: si un script no cargó o lanzó y la interfaz no llegó a arrancar, la página no queda muda
+  addEventListener("load", () => {
+    if (!listo) mostrar("La página no terminó de cargar. Revisa tu conexión y vuelve a intentarlo.", { recargar: true });
+  });
+  return { mostrar, ocultar, listo() { listo = true; } };
+})();
+</script>
 <script>
 // r: radio en la escena · d: radio de órbita en la escena · per: año en días · rot: día en horas (negativo = retrógrado)
 // au: distancia media al Sol en UA (para el tiempo de luz) · g: gravedad superficial en m/s²
@@ -1330,7 +1370,42 @@ const Tex = (() => {
 <script src="poblacion/panel.js?v=dev"></script>
 <script>
 // Escena 3D: estrellas, Sol, planetas, cinturones, órbitas y cámara que viaja entre astros.
+// Si no se puede crear (sin WebGL o sin three.js), queda un Space nulo con la misma API: la interfaz sigue viva
+// (fichas, cuestionario, misiones) y un aviso explica por qué no hay vista 3D.
 const Space = (() => {
+  try { return crearEspacio(); }
+  catch (e) {
+    console.error("La vista 3D no está disponible:", e);
+    const sinArchivos = typeof THREE === "undefined" || typeof THREE.OrbitControls !== "function";
+    Aviso.mostrar(sinArchivos
+      ? "No se pudo cargar la vista 3D. Puedes usar el cuestionario, las misiones y las fichas de los astros, o recargar la página para intentarlo de nuevo."
+      : "Tu navegador no puede mostrar la vista 3D. Puedes usar el cuestionario, las misiones y las fichas de los astros.", { recargar: sinArchivos });
+    return espacioNulo();
+  }
+})();
+function espacioNulo() {
+  let lvl = "solar";
+  const nivelDe = id => (Object.entries(COSMOS).find(([, lista]) => lista.some(o => o.id === id)) || ["solar"])[0];
+  const api = {
+    sin3d: true, onPick: null, onLevel: null, onConsts: null,
+    select(id) { const lv = nivelDe(id); if (lv !== lvl) api.setLevel(lv); },
+    overview() {}, resize() {},
+    setLevel(id) { if (id === lvl) return; lvl = id; api.onLevel && api.onLevel(id); },
+    level: () => lvl,
+    setOrbits() {},
+    setConsts(on) { api.onConsts && api.onConsts(on); },
+    setSpeed: () => "",
+    setPlaying() {},
+    today() {},
+    date: () => new Date(),
+    setInset() {},
+    tierra: { partida: null, fallo: true, setCapa() {}, centroPueblo: () => null },
+    apuntar() {}
+  };
+  document.getElementById("hint").hidden = true;
+  return api;
+}
+function crearEspacio() {
   const canvas = document.getElementById("scene");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1952,7 +2027,18 @@ const Space = (() => {
     applyOffset();
   }
 
+  // Se pide el cuadro siguiente antes de dibujar: un error nunca corta el bucle. El primer error sale en la consola y,
+  // si sigue fallando cuadro tras cuadro (unos 2 s), se avisa una vez en la página en vez de inundar la consola.
+  let fallos = 0, fallosSeguidos = 0;
   function frame() {
+    requestAnimationFrame(frame);
+    try { dibujar(); fallosSeguidos = 0; }
+    catch (e) {
+      if (++fallos === 1) console.error("La vista 3D falló al dibujar un cuadro (los fallos siguientes no se repiten aquí):", e);
+      if (++fallosSeguidos === 120) Aviso.mostrar("La vista 3D dejó de responder. Puedes seguir usando el cuestionario, las misiones y las fichas, o recargar la página.", { recargar: true });
+    }
+  }
+  function dibujar() {
     const dt = Math.min(clock.getDelta(), 0.1), days = playing ? dt * SPEEDS[speedIdx][0] : 0;
     simDays += days;
     const solar = lvl === "solar";
@@ -1984,8 +2070,17 @@ const Space = (() => {
     controls.update();
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);
-    requestAnimationFrame(frame);
   }
+
+  // Contexto WebGL perdido (falta de memoria, sobre todo en móviles): three.js lo recupera si el navegador lo devuelve;
+  // si no vuelve en 3 s, el lienzo quedaría negro, así que se pausa la partida y se ofrece recargar.
+  let esperaContexto = null;
+  canvas.addEventListener("webglcontextlost", () => {
+    if (partidaTierra && partidaTierra.reproduciendo()) partidaTierra.setReproduciendo(false);
+    clearTimeout(esperaContexto);
+    esperaContexto = setTimeout(() => Aviso.mostrar("La vista 3D se reinició. Toca «Recargar» para volver a verla.", { recargar: true }), 3000);
+  });
+  canvas.addEventListener("webglcontextrestored", () => { clearTimeout(esperaContexto); esperaContexto = null; });
 
   const api = {
     onPick: null, onLevel: null, select, overview, resize,
@@ -2012,7 +2107,7 @@ const Space = (() => {
   camera.position.copy(overviewCam()); camera.lookAt(0, 0, 0);
   requestAnimationFrame(frame);
   return api;
-})();
+}
 </script>
 <script>
 // Interfaz: ficha del astro, muelle, reloj, cuestionario y escala del universo
@@ -2168,15 +2263,18 @@ const Space = (() => {
     if (Space.level() === id) Space.overview(); else Space.setLevel(id);
   }
   let panel = null, modoElegido = false;
+  const SIN_PANEL = "No se pudo cargar el panel de La Tierra: no hay avisos ni partidas nuevas. Recarga la página para intentarlo de nuevo.";
   Space.onLevel = lv => {
     zoom.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", String(b.dataset.lv === lv)));
     buildDock(lv);
     if (current) markDock(current.id);
-    const solar = lv === "solar", tierra = lv === "tierra" && !Space.tierra.fallo;
-    document.querySelector(".clock:not(.scale-pill)").hidden = !(solar || tierra);
-    $("scale-pill").hidden = solar || tierra;
-    $("scale-text").textContent = lv === "tierra" ? "No se pudo cargar la simulación de población." : scaleOf(lv).pill;
-    $("btn-layers").parentElement.hidden = !(solar || tierra);
+    const solar = lv === "solar", tierra = lv === "tierra" && !Space.tierra.fallo, sinPanel = tierra && !panel;
+    document.querySelector(".clock:not(.scale-pill)").hidden = Space.sin3d || !(solar || tierra);
+    $("scale-pill").hidden = (solar || tierra) && !sinPanel;
+    $("scale-text").textContent = sinPanel ? SIN_PANEL
+      : lv === "tierra" ? (Space.sin3d ? "La Tierra habitada necesita la vista 3D." : "No se pudo cargar la simulación de población.")
+      : scaleOf(lv).pill;
+    $("btn-layers").parentElement.hidden = Space.sin3d || !(solar || tierra);
     document.querySelectorAll(".opt-solar").forEach(b => { b.hidden = !solar; });
     document.querySelectorAll(".opt-tierra").forEach(b => { b.hidden = !tierra; });
     if (panel) panel.mostrar(tierra);
@@ -2242,7 +2340,7 @@ const Space = (() => {
   dateOut.addEventListener("click", () => {
     if (!enTierra()) return Space.today();
     if (panel) panel.elegirModo();
-    else if (confirm("¿Empezar una partida nueva? La humanidad volverá a nacer en África hace 300.000 años.")) partida.nueva();
+    else Aviso.mostrar(SIN_PANEL, { recargar: true });
   });
   if (partida) partida.alEvento(e => {
     if (!enTierra()) return;
@@ -2384,6 +2482,7 @@ const Space = (() => {
   fill(byId.tierra);
   openSheet(true);
   setTimeout(() => Space.select("tierra"), 900);
+  Aviso.listo();
 })();
 </script>
 </html>
