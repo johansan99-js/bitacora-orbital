@@ -335,8 +335,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 .zoom { top: min(max(50%, 390px), calc(100dvh - 140px)); }   /* en pantallas bajas la tarjeta no tapa la escalera de escalas; en celular la regla móvil la reemplaza */
 @media (min-width: 761px) and (max-height: 520px) { .t-card { left: calc(210px + env(safe-area-inset-left, 0px)); } }   /* ventanas anchas y bajas: la tarjeta al lado de la escalera */
 /* Con tu pueblo la tarjeta es más alta: la escalera baja un poco más y, si no cabe, la tarjeta va a su lado */
-@media (min-width: 761px) { body.t-con-pueblo .zoom { top: min(max(50%, 530px), calc(100dvh - 140px)); } }
-@media (min-width: 761px) and (max-height: 670px) {
+/* (la escalera mide ~260 px: su centro queda al menos 212 px sobre el borde de abajo para no tapar el muelle, y a 190 px del de arriba) */
+@media (min-width: 761px) { body.t-con-pueblo .zoom { top: max(190px, min(max(50%, 530px), calc(100dvh - 212px))); } }
+/* Ventanas muy bajas (un celular acostado): la escalera sin subtítulos, como en el celular, cabe entre el título y el reloj */
+@media (min-width: 761px) and (max-height: 420px) { .zoom button small { display: none; } }
+@media (min-width: 761px) and (max-height: 759px) {
   body.t-con-pueblo .t-card { left: calc(210px + env(safe-area-inset-left, 0px)); max-height: calc(100dvh - 225px - env(safe-area-inset-bottom, 0px)); }   /* sin tapar el muelle ni el reloj */
 }
 @media (max-width: 760px) {
@@ -510,7 +513,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
     <div class="t-dec-opciones" id="t-dec-opciones" role="group" aria-label="Opciones"></div>
     <div class="t-dec-real" id="t-dec-real" hidden aria-live="polite">
       <p class="t-dec-eleccion" id="t-dec-eleccion"></p>
-      <h3>En la realidad</h3>
+      <h3 id="t-dec-real-titulo">En la realidad</h3>
       <p id="t-dec-real-texto"></p>
       <p class="t-fuente" id="t-dec-fuente"></p>
       <div class="q-foot"><button class="chip primary" id="t-dec-seguir" type="button">Seguir</button></div>

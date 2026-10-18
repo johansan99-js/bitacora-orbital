@@ -66,14 +66,17 @@ const PanelTierra = (() => {
       : `Hoy, ${gente(r.conLinaje)} tienen algo de su linaje; su herencia equivale a ${gente(r.herencia)}.`);
     return partes.join(" ");
   }
-  // Tarjeta de tu pueblo al disolverse o extinguirse: título, qué pasó y lo que pasó en la realidad
+  // Tarjeta de tu pueblo al disolverse o extinguirse: título, qué pasó en tu partida y, si hay con qué compararlo, lo que pasó en
+  // la realidad con su fuente (la de Skhul, la misma que cita el momento "frontera" de pueblo-datos.js). La disolución es lo que
+  // muestra el juego, sin comparación real: no se presenta como un dato con fuente.
   const ESTADOS = {
     disuelto: { titulo: "Tu pueblo se mezcló con los demás",
-      texto: "Ya no queda ningún grupo de tu pueblo: los últimos se integraron a sus vecinos. La partida sigue con el resto de la humanidad.",
-      real: "Así pasó con muchos pueblos antiguos: desaparecieron como grupo, pero su herencia sigue en la gente de hoy." },
+      texto: "Ya no queda ningún grupo de tu pueblo: los últimos se integraron a sus vecinos. En tu partida, sus descendientes siguen vivos mezclados con los demás: esa es la herencia que ves en la tarjeta. La partida sigue con el resto de la humanidad.",
+      real: null },
     extinto: { titulo: "Tu pueblo se extinguió",
       texto: "No queda nadie de tu pueblo ni de su linaje. La partida sigue: puedes mirar cómo continúa el resto de la humanidad.",
-      real: "Les pasó también a los primeros que salieron de África hacia Levante, hace unos 120.000 años: no dejaron descendientes entre la gente de hoy." }
+      real: { texto: "Les pasó también a los primeros que salieron de África hacia Levante, hace más de 100.000 años: aquella salida no dejó una población duradera.",
+        fuente: "Grün et al. (2005), Journal of Human Evolution 49" } }
   };
 
   function iniciar({ partida, historia, normal, irA, abrirModal, centroPueblo }) {
@@ -148,7 +151,8 @@ const PanelTierra = (() => {
       const dec = actual.decision, est = actual.estado && ESTADOS[actual.estado], r = actual.resultado;
       $("t-dec-kind").textContent = dec ? "Decisión" : "Tu pueblo";
       $("t-dec-titulo").textContent = dec ? dec.titulo : est.titulo;
-      $("t-dec-año").textContent = partida.textoAño(dec ? dec.año : undefined);
+      // En una tarjeta de estado, el año en que tu pueblo se disolvió o se extinguió (anotado al llegar el evento)
+      $("t-dec-año").textContent = partida.textoAño(dec ? dec.año : actual.año);
       $("t-dec-texto").textContent = dec ? dec.texto : est.texto;
       $("t-dec-opciones").replaceChildren(...(dec ? dec.opciones.map(o => {
         const div = el("div", "t-opcion"), b = el("button", "chip", o.texto), det = el("span", null, o.detalle);
@@ -163,8 +167,10 @@ const PanelTierra = (() => {
       $("t-dec-eleccion").hidden = !r;
       $("t-dec-eleccion").textContent = r
         ? `Elegiste «${r.opcion.texto}».` + (r.rasgo ? ` Tu pueblo ganó un rasgo: ${r.rasgo.nombre}. ${r.rasgo.texto}` : "") : "";
-      $("t-dec-real-texto").textContent = r ? r.real.texto : est ? est.real : "";
-      const fuente = [r && r.real.fuente && `Fuente: ${r.real.fuente}`, r && r.rasgo && r.rasgo.fuente && `Sobre el rasgo: ${r.rasgo.fuente}`]
+      const real = r ? r.real : est ? est.real : null;
+      $("t-dec-real-titulo").hidden = $("t-dec-real-texto").hidden = !real;
+      $("t-dec-real-texto").textContent = real ? real.texto : "";
+      const fuente = [real && real.fuente && `Fuente: ${real.fuente}`, r && r.rasgo && r.rasgo.fuente && `Sobre el rasgo: ${r.rasgo.fuente}`]
         .filter(Boolean).join(" · ");
       $("t-dec-fuente").textContent = fuente;
       $("t-dec-fuente").hidden = !fuente;
@@ -174,8 +180,8 @@ const PanelTierra = (() => {
       if (!visible) { aviso.hidden = true; tarjeta.hidden = true; return false; }
       if (!actual) {
         const dec = partida.decisionPendiente();
-        if (dec) actual = { decision: dec, resultado: null };
-        else if (estados.length) actual = { estado: estados.shift() };
+        if (decisionViva()) actual = { decision: dec, resultado: null };
+        else if (estados.length) actual = estados.shift();
       }
       if (!actual) return mostrarHito();
       ocultar(aviso);
@@ -192,10 +198,12 @@ const PanelTierra = (() => {
       pintarDecision();
       $("t-dec-seguir").focus();
     }
+    // Una decisión que se puede tomar todavía (al terminar la partida ya no)
+    const decisionViva = () => !!partida.decisionPendiente() && !partida.terminada();
     const reanudar = () => { if (!partida.terminada() && !partida.decisionPendiente()) partida.setReproduciendo(true); };
     // Seguir (o ▶ con un aviso abierto): cierra el aviso, muestra el siguiente o reanuda
     function seguir() {
-      if (actual || partida.decisionPendiente()) {
+      if (actual || decisionViva()) {
         // La tarjeta de decisión no se cierra sin elegir
         if (!actual || (actual.decision && !actual.resultado)) return void mostrarAvisos();
         actual = null;
@@ -254,9 +262,14 @@ const PanelTierra = (() => {
 
     partida.alEvento(e => {
       if (e.tipo === "hito" || e.tipo === "decision") mostrarAvisos();
-      if (e.tipo === "pueblo") { estados.push(e.estado); mostrarAvisos(); }
+      if (e.tipo === "pueblo") { estados.push({ estado: e.estado, año: partida.motor().año() }); mostrarAvisos(); }
       if (e.tipo === "nueva") { actual = null; estados = []; ocultar(tarjeta); ocultar(aviso); pintarTarjeta(); }
-      if (e.tipo === "fin" && visible) { pintarBitacora(); abrirModal("bitacora"); }
+      if (e.tipo === "fin") {
+        // Una decisión sin elegir ya no se puede tomar: la tarjeta se descarta (la de un estado o una ya elegida se queda)
+        // y se muestra lo que esperaba detrás (un cambio de estado o un hito del mismo paso), antes de abrir la Bitácora
+        if (actual && actual.decision && !actual.resultado) { actual = null; ocultar(tarjeta); mostrarAvisos(); }
+        if (visible) { pintarBitacora(); abrirModal("bitacora"); }
+      }
     });
     setInterval(pintarTarjeta, 250);
 
@@ -283,11 +296,23 @@ const PanelTierra = (() => {
       origenes.hidden = false; btnPueblo.setAttribute("aria-expanded", "true");
       origenes.querySelector("button").focus();
     });
+    // Al cerrar sin elegir (botón, Escape o clic afuera), el foco vuelve a quien lo abrió o a ▶, salvo que quede otro modal abierto
+    let abridor = null;
     function elegirModo() {
+      const a = document.activeElement;
+      abridor = a && a !== document.body && !modo.contains(a) ? a : null;
       origenes.hidden = true; btnPueblo.setAttribute("aria-expanded", "false");
       abrirModal("t-modo");
       $("t-modo-historia").focus();
     }
+    new MutationObserver(() => {
+      if (!modo.hidden) return;
+      const a = document.activeElement;
+      if (a && a !== document.body && !modo.contains(a)) return;   // ya tiene adónde ir (por ejemplo, ▶ al empezar)
+      const otro = document.querySelector(".modal:not([hidden]) .sheet-close");
+      const destino = otro || (abridor && abridor.isConnected && abridor.offsetParent !== null ? abridor : play);
+      destino.focus();
+    }).observe(modo, { attributes: true, attributeFilter: ["hidden"] });
 
     function mostrar(on) {
       visible = on; card.hidden = !on; boton.hidden = !on;
@@ -296,7 +321,7 @@ const PanelTierra = (() => {
     return {
       mostrar, seguir, elegirModo,
       avisoAbierto: () => !aviso.hidden,
-      decisionAbierta: () => !tarjeta.hidden || !!partida.decisionPendiente()
+      decisionAbierta: () => !tarjeta.hidden || decisionViva()
     };
   }
 
