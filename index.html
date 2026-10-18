@@ -1170,8 +1170,9 @@ const LADDER = [
   { mag: "93.000 millones de años luz", t: "Universo observable", p: "Su diámetro actual. Contiene cientos de miles de millones de galaxias y tiene unos 13.800 millones de años." }
 ];
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<!-- three.js r128 y su OrbitControls, copiados sin cambios en vendor/ (ver README) -->
+<script src="vendor/three.min.js?v=dev"></script>
+<script src="vendor/OrbitControls.js?v=dev"></script>
 <script>
 // Texturas procedurales en canvas (sin imágenes externas). Ruido de valor periódico en x para que no haya costura.
 const Tex = (() => {
@@ -1319,14 +1320,14 @@ const Tex = (() => {
   return { forBody, clouds, rings, glow };
 })();
 </script>
-<script src="poblacion/mundo.js"></script>
-<script src="poblacion/datos.js"></script>
-<script src="poblacion/motor.js"></script>
-<script src="poblacion/pueblo-datos.js"></script>
-<script src="poblacion/pueblo.js"></script>
-<script src="poblacion/partida.js"></script>
-<script src="poblacion/vista.js"></script>
-<script src="poblacion/panel.js"></script>
+<script src="poblacion/mundo.js?v=dev"></script>
+<script src="poblacion/datos.js?v=dev"></script>
+<script src="poblacion/motor.js?v=dev"></script>
+<script src="poblacion/pueblo-datos.js?v=dev"></script>
+<script src="poblacion/pueblo.js?v=dev"></script>
+<script src="poblacion/partida.js?v=dev"></script>
+<script src="poblacion/vista.js?v=dev"></script>
+<script src="poblacion/panel.js?v=dev"></script>
 <script>
 // Escena 3D: estrellas, Sol, planetas, cinturones, órbitas y cámara que viaja entre astros.
 const Space = (() => {

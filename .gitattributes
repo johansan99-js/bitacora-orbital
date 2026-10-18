@@ -12,3 +12,6 @@
 *.glb binary
 *.woff binary
 *.woff2 binary
+
+# Bibliotecas copiadas tal cual: sin conversión de finales de línea ni diff de texto.
+vendor/** -text -diff

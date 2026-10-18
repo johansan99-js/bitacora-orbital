@@ -21,9 +21,9 @@ Las texturas se cargan como archivos aparte, así que la página necesita un ser
 python3 -m http.server 8000
 ```
 
-y abre <http://localhost:8000>. Necesita internet para cargar three.js y las fuentes.
+y abre <http://localhost:8000>. three.js viene en `vendor/`; solo las fuentes se cargan de internet (sin conexión se usan las del sistema).
 
-Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/` y `poblacion/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez. Antes de publicar corre las pruebas (`.github/workflows/pruebas.yml`, las mismas que en cada PR); si alguna falla, no se publica.
+Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/`, `poblacion/` y `vendor/`, y cambia el `?v=dev` de los `<script>` por el commit publicado, para que nadie mezcle un `index.html` nuevo con un script viejo de la caché. En local `?v=dev` no hace nada. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez. Antes de publicar corre las pruebas (`.github/workflows/pruebas.yml`, las mismas que en cada PR); si alguna falla, no se publica.
 
 Para que nada llegue a `main` sin pasar las pruebas, el dueño del repositorio lo protege una vez, a mano: *Settings → Branches → Add branch protection rule* (o *Rules → Rulesets*) para `main`, con *Require a pull request before merging* y *Require status checks to pass*, eligiendo el check **`pruebas`** (aparece en la lista después de que el workflow haya corrido al menos una vez en un PR).
 
@@ -34,6 +34,7 @@ Para que nada llegue a `main` sin pasar las pruebas, el dueño del repositorio l
 | `index.html` | Toda la app: estilos, datos (planetas, lunas, estrellas, galaxias, cuestionario, misiones) y la escena 3D con three.js r128 |
 | `tex/` | Texturas de los planetas, optimizadas para la web |
 | `renders/` | Retratos de cada astro (WebP), hechos con Blender |
+| `vendor/` | three.js r128 (`three.min.js`) y su `OrbitControls.js`, copiados sin cambios de los CDN que usaba la página, con su licencia MIT (`LICENSE-three.txt`). SHA-256: `9274bbce…c1ce2` y `02bb4ade…5e7b2` |
 | `poblacion/` | La Tierra habitada: mapa en celdas (`mundo.js`, generado), datos reales con fuentes (`datos.js`), motor de la simulación, reloj de la partida, vista 3D y panel |
 | `herramientas/generar_mundo.py` | Genera `poblacion/mundo.js` a partir de las texturas de la Tierra |
 | `pruebas/` | Pruebas del motor y la partida, y la calibración contra la historia real |
