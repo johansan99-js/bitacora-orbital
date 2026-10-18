@@ -2015,7 +2015,8 @@ function crearEspacio() {
       }
       L.labels.appendChild(t); o._tag = t;
     });
-    if (L.oclusor) L.hits.push(L.oclusor);
+    // El globo tapa lo que está detrás: se prueba como esfera exacta, no contra sus 16.384 triángulos (R7)
+    if (L.oclusor) { L.oclusor.geometry.computeBoundingSphere(); L.esferaOclusora = L.oclusor.geometry.boundingSphere.clone(); }
   }
   // Las escalas lejanas y, al final, "La Tierra" con su partida se arman en reposo, cada una en su tarea (con sus shaders
   // compilados); si se entra antes a una, se arma en ese momento. La partida no tiene semilla fija, así que crearla antes
@@ -2027,7 +2028,9 @@ function crearEspacio() {
   function updateCosmosLabels(w, h) {
     const L = LV[lvl], tanHalf = Math.tan(D2R(camera.fov / 2)), boxes = [];
     const nearSun = lvl !== "galaxy" || camera.position.distanceTo(L.anchor) < 24;
-    [...L.objs].sort((a, b) => rank(b) - rank(a)).forEach(o => {
+    // El orden solo depende del objeto enfocado: se ordena de nuevo cuando cambia, no en cada cuadro
+    if (!L.orden || L.ordenFoco !== focusObj) { L.orden = [...L.objs].sort((a, b) => rank(b) - rank(a)); L.ordenFoco = focusObj; }
+    L.orden.forEach(o => {
       tmp.copy(o.world).project(camera);
       let off = tmp.z > 1 || Math.abs(tmp.x) > 1.15 || Math.abs(tmp.y) > 1.15 || (o.near && !nearSun)
         || (o.normal && o.world.dot(camera.position) < o.world.lengthSq() * 1.1);   // detrás del horizonte del globo
@@ -2075,25 +2078,35 @@ function crearEspacio() {
     flyTo(() => o.world, () => end, 2.2);
   }
 
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  function pick(e) {
-    const r = canvas.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  // Selección con el puntero. El rectángulo del lienzo se guarda en resize() (leerlo en cada evento puede forzar el
+  // cálculo del diseño a mitad de cuadro) y el paso del ratón se atiende a lo sumo una vez por cuadro, en dibujar().
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), golpe = new THREE.Vector3();
+  let rect = canvas.getBoundingClientRect(), puntero = null, cursor = "";
+  function pick(x, y) {
+    ndc.set(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const h = ray.intersectObjects(LV[lvl].hits, false)[0];
-    return h ? h.object.userData.id : null;
+    const L = LV[lvl], h = ray.intersectObjects(L.hits, false)[0];
+    if (!h) return null;
+    if (L.esferaOclusora && ray.ray.intersectSphere(L.esferaOclusora, golpe) && golpe.distanceTo(ray.ray.origin) < h.distance) return null;
+    return h.object.userData.id;
+  }
+  function procesarPuntero() {
+    if (!puntero) return;
+    const c = pick(puntero[0], puntero[1]) ? "pointer" : "";
+    puntero = null;
+    if (c !== cursor) canvas.style.cursor = cursor = c;
   }
   let down = null;
   canvas.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
   canvas.addEventListener("pointerup", e => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
     down = null;
-    const id = pick(e);
+    const id = pick(e.clientX, e.clientY);
     if (id && api.onPick) api.onPick(id);
   });
   canvas.addEventListener("pointermove", e => {
     if (e.pointerType !== "mouse" || e.buttons) return;
-    canvas.style.cursor = pick(e) ? "pointer" : "";
+    puntero = [e.clientX, e.clientY];
   });
 
   let focus = null, focusConst = null, fly = null;
@@ -2158,6 +2171,7 @@ function crearEspacio() {
   function resize() {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
     renderer.setSize(W, H, false);
+    rect = canvas.getBoundingClientRect();
     camera.aspect = W / H;
     applyOffset();
     sucio = true;
@@ -2216,6 +2230,7 @@ function crearEspacio() {
       catch (e) { console.error(`La escala "${lvl}" falló y se desactivó:`, e); LV[lvl].update = null; LV[lvl].fallo = true; }
     }
     const movida = controls.update();
+    procesarPuntero();
     const ahora = performance.now();
     const animada = fly || movida || (solar && playing) || lvl === "tierra";
     if (hayModal() ? !sucio : !(animada || sucio || ahora - ultimoDibujo > 500)) return;

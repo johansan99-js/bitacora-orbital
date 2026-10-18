@@ -106,31 +106,43 @@ const PanelTierra = (() => {
       })];
     } }));
 
+    // La tarjeta se repinta cada 250 ms, pero solo se toca lo que cambió: escribir el mismo texto o rehacer la lista
+    // de continentes obligaría al navegador a recalcular el diseño varias veces por segundo (R8)
+    const texto = (id, t) => { const e = $(id); if (e.textContent !== t) e.textContent = t; };
+    const oculto = (e, h) => { if (e.hidden !== h) e.hidden = h; };
+    const conts = historia.continentes.map(c => el("li", null, c.nombre));
+    let contsDe = null, contsHitos = -1;
     function pintarTarjeta() {
       if (!visible) return;
       const m = partida.motor(), año = m.año(), pb = partida.pueblo();
-      $("t-pob").textContent = personas(m.poblacionTotal());
-      $("t-real").textContent = textoReal(realEn(historia.poblacionReal, año));
-      $("t-nota").hidden = año >= -10000;
-      for (const id of ["t-row-pueblo", "t-row-herencia", "t-rasgos", "t-ver-pueblo"]) $(id).hidden = !pb;
+      texto("t-pob", personas(m.poblacionTotal()));
+      texto("t-real", textoReal(realEn(historia.poblacionReal, año)));
+      oculto($("t-nota"), año >= -10000);
+      for (const id of ["t-row-pueblo", "t-row-herencia", "t-rasgos", "t-ver-pueblo"]) oculto($(id), !pb);
       document.body.classList.toggle("t-con-pueblo", !!pb);   // la tarjeta es más alta: la escalera de escalas se acomoda (index.html)
       if (pb) {
-        $("t-pueblo").textContent = personas(m.pueblo().total());
-        $("t-herencia").textContent = personas(m.pueblo().herencia());
+        texto("t-pueblo", personas(m.pueblo().total()));
+        texto("t-herencia", personas(m.pueblo().herencia()));
         const nombres = pb.rasgos().map(r => r.nombre), lista = $("t-rasgos");
         if (lista.dataset.rasgos !== nombres.join("|") || !lista.firstChild) {
           lista.dataset.rasgos = nombres.join("|");
           lista.replaceChildren(...(nombres.length ? nombres.map(n => el("li", "si", n)) : [el("li", null, "Sin rasgos todavía")]));
         }
-        $("t-ver-pueblo").disabled = pb.estado() !== "vivo";
+        const cerrado = pb.estado() !== "vivo", ver = $("t-ver-pueblo");
+        if (ver.disabled !== cerrado) ver.disabled = cerrado;
       }
-      const hechos = logrados();
-      $("t-cont").replaceChildren(...historia.continentes.map(c => {
-        const li = el("li", null, c.nombre), si = c.hitos.length === 0 || c.hitos.some(id => hechos.has(id));
-        li.classList.toggle("si", si);
-        li.setAttribute("aria-label", `${c.nombre}: ${si ? "alcanzado" : "aún no"}`);
-        return li;
-      }));
+      // Los continentes alcanzados solo cambian con un hito nuevo o una partida nueva
+      const listaConts = $("t-cont"), nHitos = m.hitos().length;
+      if (listaConts.children.length !== conts.length) listaConts.replaceChildren(...conts);
+      if (contsDe !== m || contsHitos !== nHitos) {
+        contsDe = m; contsHitos = nHitos;
+        const hechos = logrados();
+        historia.continentes.forEach((c, k) => {
+          const li = conts[k], si = c.hitos.length === 0 || c.hitos.some(id => hechos.has(id));
+          li.classList.toggle("si", si);
+          li.setAttribute("aria-label", `${c.nombre}: ${si ? "alcanzado" : "aún no"}`);
+        });
+      }
     }
 
     // Avisos: primero la tarjeta de tu pueblo (una decisión o un cambio de estado), después los hitos pendientes.
