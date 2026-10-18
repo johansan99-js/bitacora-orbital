@@ -23,7 +23,9 @@ python3 -m http.server 8000
 
 y abre <http://localhost:8000>. Necesita internet para cargar three.js y las fuentes.
 
-Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/` y `poblacion/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez.
+Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/` y `poblacion/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez. Antes de publicar corre las pruebas (`.github/workflows/pruebas.yml`, las mismas que en cada PR); si alguna falla, no se publica.
+
+Para que nada llegue a `main` sin pasar las pruebas, el dueño del repositorio lo protege una vez, a mano: *Settings → Branches → Add branch protection rule* (o *Rules → Rulesets*) para `main`, con *Require a pull request before merging* y *Require status checks to pass*, eligiendo el check **`pruebas`** (aparece en la lista después de que el workflow haya corrido al menos una vez en un PR).
 
 ## Estructura
 
@@ -59,13 +61,16 @@ Salen en PNG de 720 × 720 con fondo transparente (unos 20 segundos por astro en
 El motor (`poblacion/motor.js`) no usa el navegador, así que se prueba con Node 24:
 
 ```bash
-node --test "pruebas/*.test.mjs"
+node --test "pruebas/*.test.mjs"     # o npm test; npm run test:rapido salta las huellas largas
 ```
 
-La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana o si menos del 80 % de las partidas llega a la industria):
+Las huellas (`motor-historia.test.mjs`, `pueblo-huella.test.mjs`) comprueban que una partida con semilla fija da exactamente lo mismo que antes, bit a bit (población, innovaciones, saber y arcaicos de cada celda; en Historia también los hitos con su año y la población total). Si una cambia sin querer, algo cambió la simulación.
+
+La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana o si menos del 80 % de las partidas llega a la industria). `--sin-tiempo` quita el criterio de tiempo por partida, que depende de la máquina; `--comparar` además exige que el informe sea idéntico a `pruebas/referencias/calibrar.txt` (lo hace cada noche `.github/workflows/nocturnas.yml`, junto con `jugar.mjs 8` como informativa). Si Historia cambia a propósito, la referencia se regenera con `node pruebas/calibrar.mjs --sin-tiempo > pruebas/referencias/calibrar.txt`.
 
 ```bash
 node pruebas/calibrar.mjs
+node pruebas/calibrar.mjs --comparar
 ```
 
 La prueba de juego recorre partidas completas de **Tu pueblo** con tres jugadores automáticos (siempre la primera opción, siempre la segunda y al azar) y sale con error si no se cumple alguno de estos criterios: entre 8 y 14 decisiones por partida (contando el Nacimiento), el jugador al azar vivo en 2026 en el 30–85 % de las partidas, decisiones que importan (medido por semilla, el pueblo final de la política que más tiene sobre la que menos tiene mediana ≥ 1,5, o la fracción de partidas vivas difiere en 20 puntos o más) y tiempo por partida de a lo sumo 1,15 veces el del modo Historia (la mejor de 3 rondas pareadas):

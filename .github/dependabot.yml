@@ -1,0 +1,7 @@
+# Propone PR cuando salen versiones nuevas de las acciones (fijadas por SHA en los workflows).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

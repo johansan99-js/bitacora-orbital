@@ -1,0 +1,38 @@
+# Pruebas largas, cada noche y a mano (nunca como compuerta de cada push).
+# - calibrar: 30 partidas de Historia; exige las ventanas de la spec y un informe idéntico a
+#   pruebas/referencias/calibrar.txt. Sin el criterio de tiempo.
+# - jugar: 8 partidas de Tu pueblo por jugador automático. Solo informativa (continue-on-error):
+#   jugar.mjs todavía exige un tiempo relativo a Historia, que en un runner compartido es ruido.
+name: Pruebas nocturnas
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  calibrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Calibración contra la referencia guardada
+        run: node pruebas/calibrar.mjs 30 --comparar
+
+  jugar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Prueba de juego de Tu pueblo (informativa)
+        run: node pruebas/jugar.mjs 8
