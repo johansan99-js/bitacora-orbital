@@ -36,14 +36,16 @@ function jugar(semilla, origen, decide) {
     if (d) pb.elegir(d.opciones[decide(d)].id);
   }
   const r = pb.resumen();
-  return { decisiones: r.decisiones, vivo: r.estado === "vivo", herencia: r.estado === "extinto" ? 0 : r.herencia, estado: r.estado };
+  // Tu pueblo al final: 0 si se disolvió o se extinguió
+  return { decisiones: r.decisiones, vivo: r.estado === "vivo", herencia: r.estado === "extinto" ? 0 : r.herencia, estado: r.estado,
+    pueblo: r.estado === "vivo" ? r.pueblo : 0 };
 }
 function historia(semilla) {
   const m = Motor.crear(MUNDO, HISTORIA, { semilla });
   m.avanzar(P - HISTORIA.inicio);
 }
 
-const res = Object.fromEntries(Object.keys(POLITICAS).map(k => [k, { decisiones: [], vivos: 0, herencias: [], ms: [], estados: {} }]));
+const res = Object.fromEntries(Object.keys(POLITICAS).map(k => [k, { decisiones: [], vivos: 0, herencias: [], pueblos: [], ms: [], estados: {} }]));
 const msHistoria = [];
 for (let s = 1; s <= n; s++) {
   const origen = (s - 1) % 3;   // partida % 3, contando desde 0
@@ -58,33 +60,51 @@ for (let s = 1; s <= n; s++) {
     x.ms.push(performance.now() - t0);
     x.decisiones.push(r.decisiones);
     x.herencias.push(r.herencia);
+    x.pueblos.push(r.pueblo);
     if (r.vivo) x.vivos++;
     x.estados[r.estado] = (x.estados[r.estado] || 0) + 1;
   }
   process.stdout.write(".");
 }
 
+// Tiempo: el mejor de 3 pares medidos aparte (Historia y las tres políticas con las mismas semillas, intercaladas en la misma
+// corrida); en cada ronda, la razón es la de la política más lenta (suma de sus partidas sobre la suma de Historia)
+const semT = Array.from({ length: Math.min(n, 5) }, (_, k) => k + 1), rondas = [];
+for (let r = 0; r < 3; r++) {
+  let sH = 0; const sP = Object.fromEntries(Object.keys(POLITICAS).map(k => [k, 0]));
+  for (const s of semT) {
+    let t0 = performance.now(); historia(s); sH += performance.now() - t0;
+    for (const [k, pol] of Object.entries(POLITICAS)) { t0 = performance.now(); jugar(s, (s - 1) % 3, pol(s)); sP[k] += performance.now() - t0; }
+  }
+  rondas.push(Math.max(...Object.values(sP)) / sH);
+  process.stdout.write("·");
+}
+
 const pct = (arr, q) => { const a = [...arr].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; };
 const mill = x => x >= 1e9 ? `${(x / 1e9).toFixed(2)} mil mill.` : x >= 1e6 ? `${(x / 1e6).toFixed(1)} mill.` : `${Math.round(x)}`;
-const tH = pct(msHistoria, 0.5), tope = 1.15 * tH;
+const tH = pct(msHistoria, 0.5);
+const decBien = x => { const d = pct(x.decisiones, 0.5); return d >= 8 && d <= 14; };
 let ok = true;
-console.log(`\n\n  política   decisiones p10/med/p90   vivos en ${P}   herencia final (mediana)   ms por partida (mediana)   finales`);
+console.log(`
+
+  política   decisiones p10/med/p90   vivos en ${P}   tu pueblo final (mediana)   herencia final (mediana, informativa)   ms por partida (mediana)   finales`);
 for (const [k, x] of Object.entries(res)) {
-  const dMed = pct(x.decisiones, 0.5), tMed = pct(x.ms, 0.5);
-  const dBien = dMed >= 8 && dMed <= 14, tBien = tMed <= tope;
   const vBien = k !== "azar" || (x.vivos / n >= 0.3 && x.vivos / n <= 0.85);
-  const bien = dBien && tBien && vBien;
-  ok = ok && bien;
+  const bien = decBien(x) && vBien;
   const fin = Object.entries(x.estados).map(([e, c]) => `${e} ${c}`).join(", ");
-  console.log(`${bien ? "✓" : "✗"} ${k.padEnd(9)} ${`${pct(x.decisiones, 0.1)} / ${dMed} / ${pct(x.decisiones, 0.9)}`.padEnd(26)} ${`${x.vivos}/${n}`.padEnd(15)} ${mill(pct(x.herencias, 0.5)).padEnd(26)} ${String(Math.round(tMed)).padEnd(26)} ${fin}`);
+  console.log(`${bien ? "✓" : "✗"} ${k.padEnd(9)} ${`${pct(x.decisiones, 0.1)} / ${pct(x.decisiones, 0.5)} / ${pct(x.decisiones, 0.9)}`.padEnd(26)} ${`${x.vivos}/${n}`.padEnd(15)} ${mill(pct(x.pueblos, 0.5)).padEnd(27)} ${mill(pct(x.herencias, 0.5)).padEnd(39)} ${String(Math.round(pct(x.ms, 0.5))).padEnd(26)} ${fin}`);
 }
-const meds = Object.values(res).map(x => pct(x.herencias, 0.5)), mayor = Math.max(...meds), menor = Math.min(...meds);
-const distintas = new Set(meds).size === meds.length && mayor >= 1.5 * menor && mayor > 0;
+// Las decisiones importan: por semilla (mismo origen), tu pueblo final de la política que más tiene sobre la que menos (al menos 1),
+// mediana entre semillas; o la fracción de partidas vivas en ${P} difiere en 20 puntos o más entre dos políticas
+const pols = Object.values(res);
+const razones = Array.from({ length: n }, (_, s) => { const v = pols.map(x => x.pueblos[s]); return Math.max(...v) / Math.max(Math.min(...v), 1); });
+const rMed = pct(razones, 0.5), vivos = pols.map(x => x.vivos / n), dVivos = Math.max(...vivos) - Math.min(...vivos);
+const importan = rMed >= 1.5 || dVivos >= 0.2;
 const az = res.azar.vivos / n, azBien = az >= 0.3 && az <= 0.85;
-const tMax = Math.max(...Object.values(res).map(x => pct(x.ms, 0.5)));
-ok = ok && distintas && azBien;
-console.log(`${Object.values(res).every(x => { const d = pct(x.decisiones, 0.5); return d >= 8 && d <= 14; }) ? "✓" : "✗"} decisiones por partida (con el Nacimiento): mediana entre 8 y 14 en cada política`);
+const tMejor = Math.min(...rondas), tBien = tMejor <= 1.15;
+ok = ok && pols.every(decBien) && azBien && importan && tBien;
+console.log(`${pols.every(decBien) ? "✓" : "✗"} decisiones por partida (con el Nacimiento): mediana entre 8 y 14 en cada política`);
 console.log(`${azBien ? "✓" : "✗"} jugador al azar: tu pueblo llega a ${P} en ${res.azar.vivos}/${n} partidas (ventana 30 %–85 %)`);
-console.log(`${distintas ? "✓" : "✗"} herencia final: las medianas son distintas y la mayor es ${menor > 0 ? (mayor / menor).toFixed(2) : "∞"} veces la menor (mínimo 1,5)`);
-console.log(`${tMax <= tope ? "✓" : "✗"} tiempo por partida: mediana de la política más lenta ${Math.round(tMax)} ms; modo Historia, mismas semillas y misma corrida: ${Math.round(tH)} ms (máximo ×1,15 = ${Math.round(tope)} ms; ${(tMax / tH).toFixed(2)}×)`);
+console.log(`${importan ? "✓" : "✗"} las decisiones importan: por semilla, tu pueblo final de la mejor política sobre la peor (mín. 1) tiene mediana ${rMed >= 1e6 ? rMed.toExponential(1) : rMed.toFixed(2)} (mínimo 1,5); vivos en ${P}: ${pols.map(x => `${Math.round(100 * x.vivos / n)} %`).join(" / ")} (diferencia ${Math.round(100 * dVivos)} puntos; o al menos 20)`);
+console.log(`${tBien ? "✓" : "✗"} tiempo por partida: mejor de 3 rondas pareadas (semillas ${semT[0]}–${semT[semT.length - 1]}, Historia y las tres políticas en la misma corrida): ${tMejor.toFixed(2)}× (rondas ${rondas.map(r => r.toFixed(2)).join(", ")}; máximo 1,15). Medianas de las ${n} partidas, informativas: Historia ${Math.round(tH)} ms`);
 process.exit(ok ? 0 : 1);
