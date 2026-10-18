@@ -54,7 +54,7 @@ const Pueblo = (() => {
     const pb = motor.pueblo();
     if (!pb) throw new Error("La partida no tiene pueblo");
     const P = { ...MotorRef.PARAMS, ...opciones.params }, reglas = catalogo.reglas;
-    const c = motor.celdas, { tierra, lat, poblacion: pob, etapa, innovaciones: innov, region, arcaicos: arc, especie, domestica, area, bioma: bio, costa } = c;
+    const c = motor.celdas, { habitadas: hab, lat, poblacion: pob, etapa, innovaciones: innov, region, arcaicos: arc, especie, domestica, area, bioma: bio, costa } = c;
     const { tuyos, linaje } = pb;
     const W = c.ancho, H = c.alto, N = W * H, R = historia.regiones.length;
     // 8 vecinas por celda, como en el motor (la longitud da la vuelta) pero sin las barreras: un estrecho también es una frontera
@@ -101,30 +101,36 @@ const Pueblo = (() => {
     const capMax = new Float64Array(N);
     let cap = 0, capTope = 0;
 
+    // Las sumas se llevan en variables locales (más rápido que las de afuera) y se guardan al final
     function medir() {
       if (estado === "extinto") return;
-      herencia = 0;
+      const n = motor.nHabitadas();
+      let her = 0;
       if (estado !== "vivo") {
-        // Disuelto: ya no hay tuyos; solo se sigue la herencia (para avisar si se extingue)
-        for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; if (pob[i] > 0) herencia += linaje[i] * pob[i]; }
+        // Disuelto: ya no hay tuyos; solo se sigue la herencia para avisar si se extingue, y para eso basta saber si llega a
+        // `minimo` (la suma se corta ahí: no se usa para nada más)
+        for (let k = 0; k < n && her < P.minimo; k++) { const i = hab[k]; if (pob[i] > 0) her += linaje[i] * pob[i]; }
+        herencia = her;
         return;
       }
-      nMias = 0; total = 0; tSed = 0; tFrio = 0; tEnf = 0;
-      for (let k = 0; k < tierra.length; k++) {
-        const i = tierra[k], p = pob[i];
+      let nM = 0, tot = 0, sed = 0, fr = 0, enf = 0;
+      // Solo las celdas habitadas (en el orden de `tierra`, así las sumas dan lo mismo que recorriéndola entera)
+      for (let k = 0; k < n; k++) {
+        const i = hab[k], p = pob[i];
         if (p <= 0) continue;
-        herencia += linaje[i] * p;
+        her += linaje[i] * p;
         const t = tuyos[i];
         if (t <= 0) continue;
-        total += t;
+        tot += t;
         const b = bio[i];
-        if (b === DESIERTO || b === ESTEPA) tSed += t;
-        if (fria(i)) tFrio += t;
-        if (etapa[i] >= AGRICULTORES) tEnf += t;
+        if (b === DESIERTO || b === ESTEPA) sed += t;
+        if (fria(i)) fr += t;
+        if (etapa[i] >= AGRICULTORES) enf += t;
         const r = region[i];
         if (r >= 0) { pisadas[r] = 1; if (t >= P.establecida) llegadas[r] = 1; }
-        if (t > 0.5 * p) mias[nMias++] = i;
+        if (t > 0.5 * p) mias[nM++] = i;
       }
+      herencia = her; nMias = nM; total = tot; tSed = sed; tFrio = fr; tEnf = enf;
       cap = 0; capTope = 0;
       if (disponible("sequia")) for (let h = 0; h < nMias; h++) {
         const i = mias[h], k = motor.capacidad(i);
@@ -214,7 +220,7 @@ const Pueblo = (() => {
         let escribe = false;
         for (let h = 0; h < nMias && !escribe; h++) escribe = (innov[mias[h]] & ESCRITURA) !== 0;
         if (!escribe) return null;
-        for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; if (pob[i] > 0 && (innov[i] & INDUSTRIA)) return {}; }
+        for (let k = 0, n = motor.nHabitadas(); k < n; k++) { const i = hab[k]; if (pob[i] > 0 && (innov[i] & INDUSTRIA)) return {}; }
         return null;
       },
       mar() {
