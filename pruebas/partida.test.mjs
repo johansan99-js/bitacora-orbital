@@ -115,6 +115,27 @@ test("la historia no depende de los cuadros por segundo", () => {
   assert.deepEqual(Array.from(chicos.motor().celdas.poblacion), Array.from(grande.motor().celdas.poblacion));
 });
 
+test("aplazar un cuadro tardío no cambia la historia, solo cuándo se dan los pasos", () => {
+  const h = conGente({ origenes: [{ nombre: "A", lat: 0, lon: -4, personas: 3000 }] });
+  const mundo = () => mundoDePrueba(["0000000", "0404040", "0000000"], { lonOeste: -7 });
+  const op = { semilla: 5, params: { cruce: [0.01, 0.01, 0.01], saberMar: 0 }, pausarEnHitos: false, presupuestoMs: Infinity };
+  const todos = Partida.crear(mundo(), h, op);
+  for (let k = 0; k < 500; k++) todos.paso(0.001);
+  const aplazando = Partida.crear(mundo(), h, op);
+  const año0 = aplazando.motor().año();
+  aplazando.aplazar(0.001);
+  assert.equal(aplazando.motor().año(), año0, "aplazar no da pasos");
+  aplazando.paso(0.001);                               // los años aplazados se dan en el cuadro siguiente
+  for (let k = 2; k < 500; k += 2) { aplazando.aplazar(0.001); aplazando.paso(0.001); }
+  assert.equal(aplazando.motor().año(), todos.motor().año());
+  assert.deepEqual(Array.from(aplazando.motor().celdas.poblacion), Array.from(todos.motor().celdas.poblacion));
+  // En pausa no se acumula nada: tras reanudar, el mismo cuadro avanza lo mismo que en la partida que no aplazó
+  aplazando.setReproduciendo(false); aplazando.aplazar(1); aplazando.setReproduciendo(true);
+  todos.setReproduciendo(false); todos.setReproduciendo(true);
+  aplazando.paso(0.004); todos.paso(0.004);
+  assert.equal(aplazando.motor().año(), todos.motor().año());
+});
+
 test("en modo pueblo una decisión pausa la partida", () => {
   const p = pPueblo({ pausarEnHitos: false });
   const eventos = [];
