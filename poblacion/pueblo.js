@@ -28,15 +28,16 @@ const Pueblo = (() => {
     for (const k of ["aptitud", "capacidad"]) if (mods[k]) t[k] = mods[k].map(({ donde, valor }) => ({ donde: traducirDonde(donde), valor }));
     return t;
   }
-  // Suma de varios modificadores: migración, cruce, desplazamiento y defensas se multiplican; pérdidas y epidemias se suman (la
+  // Suma de varios modificadores: migración, rumbo al ecuador, cruce, desplazamiento y defensas se multiplican; pérdidas y epidemias se suman (la
   // epidemia final, por las defensas); las listas se juntan. Siempre un objeto completo, como lo espera setModificadores.
   function combinar(fuentes, bloqueo) {
-    const m = { aptitud: [], capacidad: [], migracion: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo };
+    const m = { aptitud: [], capacidad: [], migracion: 1, ecuador: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo };
     let defensas = 1;
     for (const f of fuentes) {
       if (f.aptitud) m.aptitud.push(...f.aptitud);
       if (f.capacidad) m.capacidad.push(...f.capacidad);
       m.migracion *= f.migracion ?? 1;
+      m.ecuador *= f.ecuador ?? 1;
       m.cruce *= f.cruce ?? 1;
       m.desplaza *= f.desplaza ?? 1;
       defensas *= f.defensas ?? 1;

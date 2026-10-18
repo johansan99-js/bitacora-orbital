@@ -86,7 +86,7 @@ const PUEBLO = (() => {
                 fuente: "Gilligan (2010), Journal of Archaeological Method and Theory 17" },
         opciones: [
           { id: "ropa", texto: "Inventar abrigo", detalle: "Pierdes parte de tu gente; después vives mejor en tierras frías.", efecto: { perder: 0.1, rasgo: "adaptados_frio" } },
-          { id: "sur", texto: "Huir al sur", detalle: "Migras más por 3.000 años; el frío te resulta peor.", efecto: { mods: { migracion: 2, aptitud: [{ donde: { frio: true }, valor: 0.7 }] }, duracion: 3000 } }
+          { id: "sur", texto: "Huir al sur", detalle: "Migras más y hacia el ecuador por 20.000 años; vives mejor fuera del frío, sin abrigo.", efecto: { mods: { migracion: 2, ecuador: 4, aptitud: [{ donde: { frio: false }, valor: 1.6 }] }, duracion: 20000 } }
         ] },
 
       { id: "cuello", limite: 2, titulo: "Un cuello de botella",

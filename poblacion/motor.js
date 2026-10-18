@@ -63,7 +63,7 @@ const Motor = (() => {
     seleccion: 0.0025        // tu pueblo: ritmo por año con que la aptitud cambia la parte de los tuyos en una celda
   };
   // Modificadores de tu pueblo que no cambian nada (los que falten en setModificadores toman estos valores)
-  const MODS_NEUTROS = Object.freeze({ aptitud: [], capacidad: [], migracion: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo: 0 });
+  const MODS_NEUTROS = Object.freeze({ aptitud: [], capacidad: [], migracion: 1, ecuador: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo: 0 });
 
   const enCaja = (la, lo, [a, b, c, d]) => la >= a && la <= b && (c <= d ? lo >= c && lo <= d : lo >= c || lo <= d);
   const enCajas = (la, lo, cajas) => cajas.some(k => enCaja(la, lo, k));
@@ -423,13 +423,15 @@ const Motor = (() => {
   }
   // Emigración de una celda con tu pueblo en juego: de los que salen, la parte de los tuyos (la fracción t del inicio del paso)
   // solo va a vecinas vacías o donde tu pueblo es mayoría (y, si los evita, sin arcaicos); los demás van como siempre. Todos
-  // llevan el linaje de su celda. Los tuyos que salen se multiplican por `migracion` (sin pasar de los que hay).
+  // llevan el linaje de su celda. Los tuyos que salen se multiplican por `migracion` (sin pasar de los que hay), y las vecinas
+  // más cerca del ecuador que la celda pesan `ecuador` veces más para ellos.
   // Usa los pesos que migrar ya calculó en E.pesos (wMin, el menor); devuelve el nuevo largo de la lista de destinos.
   // La poda solo se hace si el grupo más chico no llega a `minimo` (si no, podar no quitaría nada y daría la misma suma).
   function repartirConPueblo(E, i, p, sale, suma, wMin, nDest) {
     const { P, pob, innov, sr, apta, arc, vecinas, pesos, pesosT, salen, salenT, llegan, llegaS, llegaT, llegaL, aporte, traen, destinos } = E;
     const { tuyos, linaje, mods } = E.pb, minimo = P.minimo, vi = innov[i], si = sr[i], li = linaje[i], evita = mods.evitaArcaicos;
     const t = Math.min(1, tuyos[i] / p), saleO = sale * (1 - t), saleT = Math.min(tuyos[i], sale * t * mods.migracion);
+    const ecuador = mods.ecuador, latI = ecuador !== 1 ? Math.abs(E.lat[i]) : 0;
     // Una parte que en total no llega a `minimo` no se va: podar quitaría todas sus vecinas y daría 0, así que se salta sin
     // recorrerlas (el margen cubre el redondeo de sale · peso / suma, que con una sola vecina puede pasar de sale en un ulp).
     // Sus pesos quedan sin usar: solo se leen si esa parte sale.
@@ -439,7 +441,10 @@ const Motor = (() => {
       pesosT[k] = 0;
       if (pesos[k] <= 0) continue;
       const j = vecinas[i * 8 + k];
-      if ((pob[j] <= 0 || tuyos[j] > 0.5 * pob[j]) && !(evita && arc[j] > 0)) { pesosT[k] = pesos[k]; sumaT += pesos[k]; if (pesos[k] < wMinT) wMinT = pesos[k]; }
+      if ((pob[j] <= 0 || tuyos[j] > 0.5 * pob[j]) && !(evita && arc[j] > 0)) {
+        const w = ecuador !== 1 && Math.abs(E.lat[j]) < latI ? pesos[k] * ecuador : pesos[k];
+        pesosT[k] = w; sumaT += w; if (w < wMinT) wMinT = w;
+      }
     }
     // Cada parte por su lado: si no le queda adónde ir, se queda
     let sumaO = suma > 0 && saleO >= casiMinimo ? (saleO * wMin / suma < minimo ? podar(pesos, saleO, suma, minimo) : suma) : 0;
@@ -567,7 +572,7 @@ const Motor = (() => {
     if (d.biomas && !d.biomas.includes(b)) return false;
     if (d.etapas && !d.etapas.includes(e)) return false;
     if (d.cajas && !enCajas(E.lat[i], E.lon[i], d.cajas)) return false;
-    if (d.frio && !(Math.abs(E.lat[i]) >= 45 || b === TUNDRA || b === HIELO)) return false;
+    if (d.frio !== undefined && d.frio !== (Math.abs(E.lat[i]) >= 45 || b === TUNDRA || b === HIELO)) return false;   // false: las no frías
     if (d.costa && !E.costa[i]) return false;
     return true;
   }

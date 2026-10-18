@@ -167,6 +167,22 @@ test("migración propia", () => {
     `${rapida.pueblo().celdas().length} contra ${lenta.pueblo().celdas().length}`);
 });
 
+test("rumbo al ecuador", () => {
+  // Una columna de tierra del norte al sur del ecuador; tu pueblo empieza al norte y migra hacia ambos lados
+  const columna = () => mundoDePrueba(["000", ...Array(9).fill("040"), "000"], { latNorte: 21, lonOeste: -3 });
+  const h = historiaDePrueba({ origenes: [{ nombre: "A", lat: 10, lon: 0, personas: 3000 }] });
+  const alSur = mods => {
+    const m = conMods(columna(), h, { migracion: 3, ...mods });
+    m.avanzar(300);
+    const { tuyos } = m.pueblo(), lat = m.celdas.lat;
+    let norte = 0, sur = 0;
+    for (let i = 0; i < tuyos.length; i++) if (lat[i] > 10) norte += tuyos[i]; else if (lat[i] < 10) sur += tuyos[i];
+    return sur / (norte + sur);
+  };
+  const neutro = alSur({}), ecuador = alSur({ ecuador: 4 });
+  assert.ok(ecuador > neutro + 0.1, `${ecuador} contra ${neutro}`);
+});
+
 test("evitar a los arcaicos", () => {
   const h = historiaDePrueba({ arcaicos: ARCAICOS, origenes: [{ nombre: "A", lat: 0, lon: -10, personas: 3000 }] });
   const params = { ...SIN_AZAR, exploracion: 0.01, ritmoRec: 100, saberArcaico: 50, desplaza: 0.0005 };

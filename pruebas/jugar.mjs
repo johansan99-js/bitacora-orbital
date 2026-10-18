@@ -1,6 +1,7 @@
 // Prueba de juego de "Tu pueblo": partidas completas con el mapa real y jugadores automáticos (siempre la primera opción,
 // siempre la segunda, al azar), comparadas con los criterios del plan. Mide además, con las mismas semillas y en la misma
 // corrida, partidas del modo Historia para comparar el tiempo.
+// "Vivo" es vivo en más de una celda: un refugio de una sola celda se cuenta aparte (columna de finales).
 // Uso: node pruebas/jugar.mjs [partidas=30]   (sale con código 1 si algo no cumple)
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -36,8 +37,11 @@ function jugar(semilla, origen, decide) {
     if (d) pb.elegir(d.opciones[decide(d)].id);
   }
   const r = pb.resumen();
+  // Un pueblo vivo en una sola celda es un refugio (p. ej. un desierto rodeado de vecinas ajenas: nadie entra ni sale y queda
+  // igual hasta el final); llega vivo, pero no cuenta como vivo en estas medidas
+  const estado = r.estado === "vivo" && m.pueblo().celdas().length === 1 ? "refugio" : r.estado;
   // Tu pueblo al final: 0 si se disolvió o se extinguió
-  return { decisiones: r.decisiones, vivo: r.estado === "vivo", herencia: r.estado === "extinto" ? 0 : r.herencia, estado: r.estado,
+  return { decisiones: r.decisiones, vivo: estado === "vivo", herencia: r.estado === "extinto" ? 0 : r.herencia, estado,
     pueblo: r.estado === "vivo" ? r.pueblo : 0 };
 }
 function historia(semilla) {
@@ -114,7 +118,7 @@ const az = res.azar.vivos / n, azBien = az >= 0.3 && az <= 0.85;
 const tMejor = Math.min(...rondas), tBien = tMejor <= 1.15;
 ok = ok && pols.every(decBien) && azBien && importan && tBien;
 console.log(`${pols.every(decBien) ? "✓" : "✗"} decisiones por partida (con el Nacimiento): mediana entre 8 y 14 en cada política`);
-console.log(`${azBien ? "✓" : "✗"} jugador al azar: tu pueblo llega a ${P} en ${res.azar.vivos}/${n} partidas (ventana 30 %–85 %)`);
+console.log(`${azBien ? "✓" : "✗"} jugador al azar: tu pueblo llega a ${P} en más de una celda en ${res.azar.vivos}/${n} partidas (ventana 30 %–85 %; refugios de una celda: ${res.azar.estados.refugio || 0})`);
 console.log(`${importan ? "✓" : "✗"} las decisiones importan: por semilla, tu pueblo final de la mejor política sobre la peor (mín. 1) tiene mediana ${rMed >= 1e6 ? rMed.toExponential(1) : rMed.toFixed(2)} (mínimo 1,5); vivos en ${P}: ${pols.map(x => `${Math.round(100 * x.vivos / n)} %`).join(" / ")} (diferencia ${Math.round(100 * dVivos)} puntos; o al menos 20)`);
 console.log(`· referencia de ruido (informativa): dos jugadores al azar con distinta semilla dan una mediana de ${ruido >= 1e6 ? ruido.toExponential(1) : ruido.toFixed(2)}; vivos en ${P}: ${res.azar.vivos}/${n} y ${vivosAzar2}/${n} (diferencia ${Math.round(100 * dVivosRuido)} puntos)`);
 console.log(`${tBien ? "✓" : "✗"} tiempo por partida: mejor de 3 rondas pareadas (semillas ${semT[0]}–${semT[semT.length - 1]}, Historia y las tres políticas en la misma corrida): ${tMejor.toFixed(2)}× (rondas ${rondas.map(r => r.toFixed(2)).join(", ")}; máximo 1,15). Medianas de las ${n} partidas, informativas: Historia ${Math.round(tH)} ms`);
