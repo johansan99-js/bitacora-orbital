@@ -31,5 +31,14 @@ test("vendor/ tiene three.js r128 y OrbitControls sin cambios", () => {
 test("el despliegue publica vendor/ y pone la versión del commit", () => {
   const yml = leer(".github/workflows/pages.yml").toString("utf8");
   assert.match(yml, /cp -r index\.html tex renders poblacion vendor _site\//);
-  assert.match(yml, /\?v=dev/);
+  assert.match(yml, /version="\$\{GITHUB_SHA::8\}"/);
+  // El sed cambia ?v=dev por ?v=<commit> en los scripts de poblacion/ y vendor/
+  const lineas = yml.split("\n").map(l => l.trim());
+  const sed = lineas.find(l => l.startsWith("sed -i -E"));
+  assert.ok(sed, "falta el sed que pone la versión");
+  for (const trozo of ["(poblacion|vendor)", String.raw`\?v=dev`, "\\1?v=${version}", "_site/index.html"]) assert.ok(sed.includes(trozo), `${sed} no tiene ${trozo}`);
+  // Y la guarda que falla si queda algún script local sin versión o con ?v=dev
+  const guarda = lineas.findIndex(l => l.startsWith("if grep -nE") && l.includes("(poblacion|vendor)") && l.includes(String.raw`(\?v=dev)?`) && l.includes("_site/index.html"));
+  assert.ok(guarda > lineas.indexOf(sed), "falta la guarda después del sed");
+  assert.match(lineas[guarda + 1], /exit 1/);
 });

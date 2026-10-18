@@ -2074,13 +2074,20 @@ function crearEspacio() {
 
   // Contexto WebGL perdido (falta de memoria, sobre todo en móviles): three.js lo recupera si el navegador lo devuelve;
   // si no vuelve en 3 s, el lienzo quedaría negro, así que se pausa la partida y se ofrece recargar.
-  let esperaContexto = null;
+  let esperaContexto = null, avisoContexto = false;
   canvas.addEventListener("webglcontextlost", () => {
     if (partidaTierra && partidaTierra.reproduciendo()) partidaTierra.setReproduciendo(false);
     clearTimeout(esperaContexto);
-    esperaContexto = setTimeout(() => Aviso.mostrar("La vista 3D se reinició. Toca «Recargar» para volver a verla.", { recargar: true }), 3000);
+    esperaContexto = setTimeout(() => {
+      avisoContexto = true;
+      Aviso.mostrar("La vista 3D se reinició. Toca «Recargar» para volver a verla.", { recargar: true });
+    }, 3000);
   });
-  canvas.addEventListener("webglcontextrestored", () => { clearTimeout(esperaContexto); esperaContexto = null; });
+  canvas.addEventListener("webglcontextrestored", () => {
+    clearTimeout(esperaContexto); esperaContexto = null;
+    // Si el contexto volvió tarde y el aviso ya salió, se quita: la vista funciona otra vez
+    if (avisoContexto) { avisoContexto = false; Aviso.ocultar(); }
+  });
 
   const api = {
     onPick: null, onLevel: null, select, overview, resize,

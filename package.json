@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test": "node --test \"pruebas/*.test.mjs\"",
-    "test:rapido": "node --test --test-skip-pattern=\"no cambia\" \"pruebas/*.test.mjs\"",
+    "test:rapido": "node --test --test-skip-pattern=\"^(el modo Historia|tu pueblo) no cambia\" \"pruebas/*.test.mjs\"",
     "calibrar": "node pruebas/calibrar.mjs",
     "calibrar:referencia": "node pruebas/calibrar.mjs 30 --comparar",
     "jugar": "node pruebas/jugar.mjs"
