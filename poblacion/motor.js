@@ -968,9 +968,12 @@ const Motor = (() => {
     // Reemplaza los modificadores de tu pueblo (los que falten, neutros)
     function setModificadores(mods) {
       if (!E.pb) return;
-      const m = E.pb.mods = { ...MODS_NEUTROS, ...mods };
+      const antes = E.pb.mods, m = E.pb.mods = { ...MODS_NEUTROS, ...mods };
       E.pb.conDonde = m.aptitud.length > 0 || m.capacidad.length > 0;
-      precalcularMods(E, E.tierraL);
+      // Las tablas por celda solo dependen de las listas de aptitud y capacidad (y del tipo de tierra, que actualizarClima
+      // sigue): si traen las mismas entradas, ya están al día
+      const igual = (x, y) => x.length === y.length && x.every((e, k) => e === y[k]);
+      if (!igual(m.aptitud, antes.aptitud) || !igual(m.capacidad, antes.capacidad)) precalcularMods(E, E.tierraL);
     }
 
     return {
