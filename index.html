@@ -1869,6 +1869,27 @@ function crearEspacio() {
     const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(color), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity }));
     m.scale.set(s, s, 1); return m;
   };
+  // Muchos brillos en una sola llamada de dibujo (R11): cuadrados que siempre miran a la cámara, igual que un Sprite
+  // (tamaño en unidades del mundo, color por la textura del brillo, suma aditiva). lista: [posición, tamaño, color]
+  function brillos(lista) {
+    const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+      uniforms: { mapa: { value: glowTex } },
+      vertexShader: `varying vec2 vUv; varying vec3 vTinte;
+        void main() {
+          vUv = uv; vTinte = instanceColor;
+          vec4 mv = modelViewMatrix * vec4(instanceMatrix[3].xyz, 1.0);
+          mv.xy += position.xy * length(instanceMatrix[0].xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform sampler2D mapa; varying vec2 vUv; varying vec3 vTinte;
+        void main() { vec4 t = texture2D(mapa, vUv); gl_FragColor = vec4(vTinte * t.rgb, t.a); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }), lista.length);
+    const mt = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Vector3();
+    lista.forEach(([pos, s, color], k) => { m.setMatrixAt(k, mt.compose(pos, q, e.set(s, s, s))); m.setColorAt(k, new THREE.Color(color)); });
+    m.frustumCulled = false;   // la caja de la geometría es la de un solo cuadrado en el origen
+    return m;
+  }
   const ringLine = (radius, color, opacity, target, y = 0) => {
     const pts = [];
     for (let i = 0; i <= 128; i++) { const a = (i / 128) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * radius, y, Math.sin(a) * radius)); }
@@ -1898,14 +1919,14 @@ function crearEspacio() {
   CONSTRUIR.stars = () => {
     const sc = new THREE.Scene(); backdrop(sc, 7000, 700, 1100, 1.5, 1); backdrop(sc, 500, 700, 1100, 2.8, 1);
     sc.add(new THREE.AmbientLight(0xffffff, 1));
-    const stems = [];
+    const stems = [], luz = [];
     COSMOS.stars.forEach(o => {
       o.world = o.dist ? skyDir(o.ra, o.dec).multiplyScalar(o.dist) : new THREE.Vector3();
       o.r = o.s * 0.25;
-      const sp = sprite(o.color, o.s); sp.position.copy(o.world); sc.add(sp);
-      const core = sprite("#ffffff", o.s * 0.28); core.position.copy(o.world); sc.add(core);
+      luz.push([o.world, o.s, o.color], [o.world, o.s * 0.28, "#ffffff"]);   // el brillo de su color y el núcleo blanco
       if (Math.abs(o.world.y) > 0.3) stems.push(o.world.clone(), new THREE.Vector3(o.world.x, 0, o.world.z));
     });
+    sc.add(brillos(luz));
     sc.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: 0x8fb8ff, transparent: true, opacity: 0.22, depthWrite: false })));
     const deco = [];
     [10, 20, 30, 40].forEach(r => {
