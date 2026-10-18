@@ -21,3 +21,12 @@ export function historiaDePrueba(extra = {}) {
     ...extra
   };
 }
+
+// Huella de una partida: FNV-1a de los bytes de población, innovaciones, saber de recolectores y arcaicos.
+// Sirve para comprobar que el modo Historia da exactamente lo mismo que antes.
+export function huella(m) {
+  const c = m.celdas; let h = 0x811c9dc5 >>> 0;
+  const mezclar = a => { const b = new Uint8Array(a.buffer, a.byteOffset, a.byteLength); for (let k = 0; k < b.length; k++) { h ^= b[k]; h = Math.imul(h, 16777619) >>> 0; } };
+  mezclar(c.poblacion); mezclar(c.innovaciones); mezclar(c.saberRecolector); mezclar(c.arcaicos);
+  return h.toString(16).padStart(8, "0");
+}

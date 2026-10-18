@@ -58,7 +58,8 @@ const Motor = (() => {
     saberMar: 1350,          // umbral para cruzar el mar sin navegación de altura (0 = sin compuerta)
     saberArcaico: 1550,      // umbral para desplazar a los humanos arcaicos (0 = se retiran enseguida)
     ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
-    desplaza: 0.005          // ritmo por año con que se retiran los arcaicos ante un saber mayor
+    desplaza: 0.005,         // ritmo por año con que se retiran los arcaicos ante un saber mayor
+    asimila: 0.2             // tu pueblo: por debajo de esta fracción de una celda, los tuyos se integran a los demás
   };
 
   const enCaja = (la, lo, [a, b, c, d]) => la >= a && la <= b && (c <= d ? lo >= c && lo <= d : lo >= c || lo <= d);
@@ -177,10 +178,15 @@ const Motor = (() => {
   }
 
   // --- Gente: crecer, migrar y cruzar el mar ---
-  function vaciar(E, i) { E.pob[i] = 0; E.innov[i] = 0; E.saber[i] = 0; E.sr[i] = 0; E.etapa[i] = VACIA; E.cambioHab = true; }
+  function vaciar(E, i) {
+    E.pob[i] = 0; E.innov[i] = 0; E.saber[i] = 0; E.sr[i] = 0; E.etapa[i] = VACIA; E.cambioHab = true;
+    if (E.pb) { E.pb.tuyos[i] = 0; E.pb.linaje[i] = 0; }
+  }
   // Crecimiento logístico exacto hacia la capacidad (estable con pasos largos). La capacidad queda en capHab para migrar.
+  // Con pueblo, los tuyos crecen en la misma proporción que la celda.
   function crecer(E, dt) {
     const { P, pob, innov, sr, hab, capHab, expEtapa, base, kRec, cerrada, arc } = E, n = E.nHab, minimo = P.minimo;
+    const tuyos = E.pb ? E.pb.tuyos : null;
     const saberDesierto = P.saberDesierto, ancho = P.ancho, ocupaArcaico = P.ocupaArcaico;
     for (let e = 0; e < 5; e++) { const r = P.crecimiento[e] * E.natalidad; expEtapa[e] = Math.exp(-r * dt); }
     for (let h = 0; h < n; h++) {
@@ -192,7 +198,11 @@ const Motor = (() => {
         kRec[i] * ((cerrada[i] ? rampa(sr[i], saberDesierto, ancho) : 1) * (1 - ocupaArcaico * arc[i]));
       if (K <= 0) { vaciar(E, i); continue; }
       const q = K / (1 + ((K - p) / p) * expEtapa[e]);   // con r = 0 da q = p
-      if (q < minimo) vaciar(E, i); else { pob[i] = q; capHab[i] = K; }
+      if (q < minimo) vaciar(E, i);
+      else {
+        if (tuyos !== null && tuyos[i] > 0) tuyos[i] = Math.min(q, tuyos[i] * (q / p));
+        pob[i] = q; capHab[i] = K;
+      }
     }
   }
   const pesoDe = (pob, K, j) => K <= 0 ? 0 : Math.max(K - pob[j], 0) + 0.01 * K;   // espacio libre más un poco (> 0 si K > 0)
@@ -217,7 +227,7 @@ const Motor = (() => {
     const { P, pob, innov, sr, kRec, arc, apta, vecinas, hab, capHab, marca, etapaPropia, masc, limite, atractivo, pesos, salen, llegan, llegaS, aporte, traen, destinos } = E;
     const exploracion = P.exploracion, presion = P.presion, minimo = P.minimo, saberDesierto = P.saberDesierto, ancho = P.ancho, ocupaArcaico = P.ocupaArcaico;
     const { marcaEtapa, atractivoEtapa } = E, N = marca.length;
-    const n = E.nHab, pasoN = ++E.pasoN;
+    const n = E.nHab, pasoN = ++E.pasoN, pb = E.pb;
     let nDest = 0, ultX = NaN, ultE = 0;
     for (let h = 0; h < n; h++) {
       const i = hab[h], p = pob[i];
@@ -252,6 +262,7 @@ const Motor = (() => {
         suma += w;
         if (w < wMin) wMin = w;
       }
+      if (pb) { nDest = repartirConPueblo(E, i, p, sale, suma, nDest); continue; }
       // Grupos de menos de `minimo` personas no se van (si el más chico no lo es, ninguno lo es)
       if (sale * wMin / suma < minimo) for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < minimo) { suma -= pesos[k]; pesos[k] = 0; }
       if (suma <= 0) continue;
@@ -267,7 +278,10 @@ const Motor = (() => {
     // Primero se van, después llegan (cada celda solo mira lo suyo, así el orden no influye)
     for (let h = 0; h < n; h++) {
       const i = hab[h];
-      if (salen[i] !== 0) { pob[i] -= salen[i]; salen[i] = 0; if (pob[i] <= 0) E.cambioHab = true; }
+      if (salen[i] !== 0) {
+        pob[i] -= salen[i]; salen[i] = 0; if (pob[i] <= 0) E.cambioHab = true;
+        if (pb) { pb.tuyos[i] -= E.salenT[i]; E.salenT[i] = 0; }
+      }
     }
     for (let d = 0; d < nDest; d++) {
       const i = destinos[d], l = llegan[i];
@@ -276,9 +290,73 @@ const Motor = (() => {
       sr[i] = pob[i] <= 0 ? traido : Math.max(sr[i], traido);
       // Si los recién llegados son mayoría, traen su forma de vida (agricultores que desplazan a recolectores)
       if (l > pob[i]) innov[i] |= traen[i];
+      if (pb) {
+        // El linaje de la celda pasa a ser el promedio, por personas, de los que estaban y los que llegan
+        const { tuyos, linaje } = pb, ant = Math.max(pob[i], 0);
+        linaje[i] = Math.min(1, (linaje[i] * ant + E.llegaL[i]) / (ant + l));
+        tuyos[i] += E.llegaT[i];
+        E.llegaT[i] = 0; E.llegaL[i] = 0;
+      }
       pob[i] += l;
       llegan[i] = 0; llegaS[i] = 0; aporte[i] = 0;
     }
+    if (pb) asimilar(E, nDest);
+  }
+  // Grupos de menos de `minimo` personas no se van: poda (en orden, como en migrar) las vecinas que recibirían menos.
+  // Devuelve la suma de los pesos que quedan, sumada de nuevo para que dé 0 exacto si no queda ninguno (restando puede
+  // sobrar un residuo, y esa gente saldría sin llegar a ningún lado).
+  function podar(pesos, sale, suma, minimo) {
+    for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < minimo) { suma -= pesos[k]; pesos[k] = 0; }
+    let queda = 0;
+    for (let k = 0; k < 8; k++) queda += pesos[k];
+    return queda;
+  }
+  // Emigración de una celda con tu pueblo en juego: de los que salen, la parte de los tuyos (la fracción t del inicio del paso)
+  // solo va a vecinas vacías o donde tu pueblo es mayoría; los demás van como siempre. Todos llevan el linaje de su celda.
+  // Usa los pesos que migrar ya calculó en E.pesos; devuelve el nuevo largo de la lista de destinos.
+  function repartirConPueblo(E, i, p, sale, suma, nDest) {
+    const { P, pob, innov, sr, apta, vecinas, pesos, pesosT, salen, salenT, llegan, llegaS, llegaT, llegaL, aporte, traen, destinos } = E;
+    const { tuyos, linaje } = E.pb, minimo = P.minimo, vi = innov[i], si = sr[i], li = linaje[i];
+    const t = Math.min(1, tuyos[i] / p), saleO = sale * (1 - t), saleT = sale * t;
+    let sumaT = 0;
+    for (let k = 0; k < 8; k++) {
+      pesosT[k] = 0;
+      if (pesos[k] <= 0 || saleT <= 0) continue;
+      const j = vecinas[i * 8 + k];
+      if (pob[j] <= 0 || tuyos[j] > 0.5 * pob[j]) { pesosT[k] = pesos[k]; sumaT += pesos[k]; }
+    }
+    // Cada parte por su lado: si no le queda adónde ir, se queda
+    let sumaO = suma > 0 ? podar(pesos, saleO, suma, minimo) : 0;
+    if (sumaT > 0) sumaT = podar(pesosT, saleT, sumaT, minimo);
+    const vaO = sumaO > 0 ? saleO : 0, vaT = sumaT > 0 ? saleT : 0;
+    if (vaO + vaT <= 0) return nDest;
+    salen[i] = vaO + vaT; salenT[i] = vaT;
+    for (let k = 0; k < 8; k++) {
+      const vO = vaO > 0 && pesos[k] > 0 ? vaO * pesos[k] / sumaO : 0, vT = vaT > 0 && pesosT[k] > 0 ? vaT * pesosT[k] / sumaT : 0;
+      const v = vO + vT;
+      if (v <= 0) continue;
+      const j = vecinas[i * 8 + k];
+      if (llegan[j] === 0) destinos[nDest++] = j;
+      llegan[j] += v;
+      llegaS[j] += v * si;
+      llegaT[j] += vT;
+      llegaL[j] += v * li;
+      if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(apta, vi, j); }
+    }
+    return nDest;
+  }
+  // Al final de migrar: donde los tuyos son muy pocos (menos de `minimo` o de la fracción `asimila` de la celda), se integran a
+  // los demás; su herencia sigue en `linaje`. De paso se corrige el redondeo para que nunca haya más tuyos que gente.
+  function asimilar(E, nDest) {
+    const { P, pob, hab, destinos } = E, tuyos = E.pb.tuyos, n = E.nHab;
+    const revisar = i => {
+      let tu = tuyos[i];
+      if (tu <= 0) { tuyos[i] = 0; return; }
+      if (tu > pob[i]) tuyos[i] = tu = Math.max(pob[i], 0);
+      if (tu < Math.max(P.minimo, P.asimila * pob[i])) tuyos[i] = 0;
+    };
+    for (let h = 0; h < n; h++) revisar(hab[h]);
+    for (let d = 0; d < nDest; d++) revisar(destinos[d]);
   }
   // Tierra habitable alcanzable cruzando hasta `alcance` celdas de agua (sin contar la costa de partida)
   function destinoPorMar(E, i, alcance) {
@@ -310,7 +388,7 @@ const Motor = (() => {
     return Int32Array.from(tierraVista);
   }
   function cruzarMar(E, dt) {
-    const { P, pob, innov, sr, apta, costerasL } = E, cruceMult = E.cruceMult;
+    const { P, pob, innov, sr, apta, costerasL } = E, cruceMult = E.cruceMult, pb = E.pb;
     let ultX = NaN, ultP = 0;
     for (let c = 0; c < costerasL.length; c++) {
       const i = costerasL[c];
@@ -323,11 +401,20 @@ const Motor = (() => {
       const j = destinoPorMar(E, i, P.alcance[nivel]);
       if (j < 0) continue;
       const grupo = Math.min(Math.max(pob[i] * 0.05, 2 * P.minimo), 500, pob[i] / 2);
+      if (pb) llevarPorMar(E, i, j, grupo);
       pob[i] -= grupo;
       if (pob[j] <= 0) { innov[j] = 0; sr[j] = sr[i]; E.cambioHab = true; } else sr[j] = Math.max(sr[j], sr[i]);
       innov[j] |= aptas(apta, innov[i], j);   // el contacto también lleva las innovaciones
       pob[j] += grupo;
     }
+  }
+
+  // El grupo que cruza el mar lleva la parte de tuyos de su celda y su linaje (antes de mover a la gente)
+  function llevarPorMar(E, i, j, grupo) {
+    const { pob } = E, { tuyos, linaje } = E.pb, ant = Math.max(pob[j], 0), gT = grupo * Math.min(1, tuyos[i] / pob[i]);
+    linaje[j] = Math.min(1, (linaje[j] * ant + grupo * linaje[i]) / (ant + grupo));
+    tuyos[i] -= gT;
+    tuyos[j] += gT;
   }
 
   // --- Hitos ---
@@ -584,6 +671,8 @@ const Motor = (() => {
       P, historia, natalidad: opciones.natalidad ?? 1, glacial: opciones.intensidadGlacial ?? 1,
       conPuentes: opciones.puentesDeTierra ?? true, cruceMult: opciones.cruceDeMar ?? 1,
       azar: new Uint32Array([semilla]),
+      // Tu pueblo (null en el modo Historia): tuyos y linaje por celda, y su propio azar para no tocar el de la partida
+      pb: null, azarP: null, salenT: null, llegaT: null, llegaL: null, pesosT: new Float64Array(8),
       // Mundo
       tierraL: Int32Array.from(tierra), costerasL: Int32Array.from(costeras), estructurales, soloFrio, vecinas, costa, bioma0, rio, humedo, gHielo,
       puente, region, domestica, areaT, fracFrio, latApta, cerrada, especie,
@@ -626,14 +715,52 @@ const Motor = (() => {
 
     actualizarClima(E);
     for (const o of historia.origenes) pob[celdaDe(o.lat, o.lon)] += o.personas;
+    if (opciones.pueblo) {
+      const o = historia.origenes[opciones.pueblo.origen];
+      if (!o) throw new Error(`No hay origen ${opciones.pueblo.origen} para tu pueblo`);
+      // Los mods (multiplicadores de tus decisiones) llegan con la Tarea 2; mientras tanto, ninguno
+      E.pb = { tuyos: new Float64Array(N), linaje: new Float32Array(N), mods: {} };
+      E.azarP = new Uint32Array([(semilla ^ 0x9e3779b9) >>> 0]);
+      E.salenT = new Float64Array(N); E.llegaT = new Float64Array(N); E.llegaL = new Float64Array(N);
+      const i = celdaDe(o.lat, o.lon);
+      E.pb.tuyos[i] = o.personas;
+      E.pb.linaje[i] = o.personas / pob[i];   // 1, salvo que otro origen empiece en la misma celda
+    }
     for (const i of tierra) etapa[i] = pob[i] > 0 ? RECOLECTORES : VACIA;
     listarHabitadas(E);
     contar(E);
     E.empezoConGente = E.total > 0;
 
+    // Tu pueblo visto desde afuera: los arreglos por celda y sus cuentas
+    const pueblo = E.pb && {
+      tuyos: E.pb.tuyos, linaje: E.pb.linaje,
+      total() { let t = 0; const tu = E.pb.tuyos; for (let k = 0; k < tierra.length; k++) t += tu[tierra[k]]; return t; },
+      // Personas "equivalentes" que descienden de tu pueblo
+      herencia() { let t = 0; const l = E.pb.linaje; for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; t += l[i] * pob[i]; } return t; },
+      // Gente que vive en celdas con algo de tu linaje (más de 0,1 %)
+      conLinaje() { let t = 0; const l = E.pb.linaje; for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; if (l[i] > 0.001) t += pob[i]; } return t; },
+      mayoria: i => E.pb.tuyos[i] > 0.5 * pob[i],
+      celdas: () => Int32Array.from(tierra.filter(i => E.pb.tuyos[i] > 0))
+    };
+    // Tu pueblo pierde esa fracción de su gente en cada celda (mueren); las celdas que quedan con menos de `minimo` se vacían
+    function perderPueblo(fraccion) {
+      if (!E.pb) return;
+      const tu = E.pb.tuyos;
+      for (const i of tierra) {
+        if (tu[i] <= 0) continue;
+        const d = tu[i] * fraccion;
+        tu[i] -= d; pob[i] -= d;
+        if (pob[i] < P.minimo) vaciar(E, i);
+      }
+      listarHabitadas(E);
+      contar(E);
+    }
+
     return {
       semilla,
       avanzar,
+      pueblo: () => pueblo || null,
+      perderPueblo,
       año: () => E.año,
       pasoMax: () => tramo(historia.pasos, E.año),
       poblacionTotal: () => E.total,
