@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { require, mundoDePrueba, historiaDePrueba } from "./ayuda.mjs";
-const Partida = require("../poblacion/partida.js");
+import { require, mundoDePrueba, historiaDePrueba, huella } from "./ayuda.mjs";
+const Partida = require("../poblacion/partida.js"), PUEBLO = require("../poblacion/pueblo-datos.js");
+// Catálogo de prueba: el de verdad con solo algunos momentos (el Nacimiento siempre) y sin espera entre decisiones
+const catalogo = ids => ({ reglas: { ...PUEBLO.reglas, intervalo: [[-1e9, 0]] }, rasgos: PUEBLO.rasgos,
+  momentos: PUEBLO.momentos.filter(m => m.id === "nacimiento" || ids.includes(m.id)) });
+// Estepa con un desierto al este: la frontera aparece enseguida
+const conDesierto = () => mundoDePrueba(["0000", "0430", "0000"], { lonOeste: -3 });
+const hPueblo = () => historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: -1, personas: 3000 }] });
+const pPueblo = (extra = {}) => {
+  const p = Partida.crear(conDesierto(), hPueblo(), { params: QUIETO, presupuestoMs: Infinity, catalogo: catalogo(["frontera"]), ...extra });
+  p.nueva(1, { modo: "pueblo", origen: 0 });
+  return p;
+};
 const QUIETO = { cruce: [0, 0, 0], costera: 0 };
 const isla = () => mundoDePrueba(["000", "040", "000"], { lonOeste: -3 });
 const conGente = extra => historiaDePrueba({ origenes: [{ nombre: "A", lat: 0, lon: 0, personas: 500 }], ...extra });
@@ -102,4 +113,84 @@ test("la historia no depende de los cuadros por segundo", () => {
   for (let k = 0; k < 500; k++) chicos.paso(0.001);   // los mismos 500 años en cuadros de 1 año
   assert.equal(chicos.motor().año(), grande.motor().año());
   assert.deepEqual(Array.from(chicos.motor().celdas.poblacion), Array.from(grande.motor().celdas.poblacion));
+});
+
+test("en modo pueblo una decisión pausa la partida", () => {
+  const p = pPueblo({ pausarEnHitos: false });
+  const eventos = [];
+  p.alEvento(e => eventos.push(e));
+  assert.equal(p.modo(), "pueblo");
+  p.paso(1);
+  assert.equal(p.reproduciendo(), false);
+  const d = p.decisionPendiente();
+  assert.equal(d.id, "frontera");
+  assert.equal(eventos.filter(e => e.tipo === "decision").length, 1);
+  assert.equal(eventos.find(e => e.tipo === "decision").decision.id, "frontera");
+  const año = p.motor().año();
+  assert.equal(p.paso(1), 0);
+  assert.equal(p.motor().año(), año);
+});
+
+test("elegir no reanuda; setReproduciendo(true) sí", () => {
+  const p = pPueblo({ pausarEnHitos: false });
+  p.paso(1);
+  const r = p.elegir("esperar");
+  assert.equal(r.opcion.id, "esperar");
+  assert.equal(p.decisionPendiente(), null);
+  assert.equal(p.reproduciendo(), false);
+  assert.equal(p.paso(1), 0);
+  assert.equal(p.setReproduciendo(true), true);
+  assert.ok(p.paso(1) > 0);
+});
+
+test("misma semilla, mismo origen y mismas elecciones en los mismos años: misma partida", () => {
+  const jugar = () => {
+    const p = pPueblo({ pausarEnHitos: false, catalogo: catalogo(["frontera", "encuentro", "frio", "sequia"]) });
+    for (let k = 0; k < 200 && !p.terminada(); k++) {
+      const d = p.decisionPendiente();
+      if (d) { p.elegir(d.opciones[0].id); p.setReproduciendo(true); }
+      p.paso(0.5);
+    }
+    return p;
+  };
+  const a = jugar(), b = jugar();
+  assert.ok(a.pueblo().registro().length > 1);
+  assert.equal(huella(a.motor()), huella(b.motor()));
+  assert.deepEqual(a.pueblo().registro(), b.pueblo().registro());
+});
+
+test("una decisión y un hito en el mismo paso: los dos quedan pendientes", () => {
+  const p = pPueblo();   // la salida de África y la frontera del desierto llegan en el primer paso
+  p.paso(1);
+  assert.equal(p.decisionPendiente().id, "frontera");
+  assert.deepEqual(p.pendientes().map(x => x.id), ["salida_africa"]);
+  assert.equal(p.tomarHito().id, "salida_africa");
+  assert.equal(p.decisionPendiente().id, "frontera");
+});
+
+test("una partida nueva descarta la decisión pendiente", () => {
+  const p = pPueblo();
+  p.paso(1);
+  assert.ok(p.decisionPendiente());
+  p.nueva(2);
+  assert.equal(p.decisionPendiente(), null);
+  assert.equal(p.modo(), "historia");
+  assert.equal(p.pueblo(), null);
+  p.nueva(3, { modo: "pueblo", origen: 0 });
+  assert.equal(p.decisionPendiente(), null);
+  assert.equal(p.motor().año(), -20000);
+  assert.equal(p.reproduciendo(), true);
+});
+
+test("el modo historia sigue igual", () => {
+  const p = Partida.crear(isla(), conGente(), { params: QUIETO, presupuestoMs: Infinity });
+  const eventos = [];
+  p.alEvento(e => eventos.push(e.tipo));
+  p.nueva(7);
+  for (let k = 0; k < 5; k++) { p.setReproduciendo(true); p.paso(1); }
+  assert.equal(p.modo(), "historia");
+  assert.equal(p.pueblo(), null);
+  assert.equal(p.decisionPendiente(), null);
+  assert.ok(!eventos.includes("decision") && !eventos.includes("pueblo"));
+  assert.throws(() => p.elegir("x"));
 });

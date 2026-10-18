@@ -2,6 +2,8 @@
 // No usa three.js ni el DOM.
 const Partida = (() => {
   const MotorRef = typeof Motor !== "undefined" ? Motor : require("./motor.js");
+  const PuebloRef = typeof Pueblo !== "undefined" ? Pueblo : require("./pueblo.js");
+  const CATALOGO = typeof PUEBLO !== "undefined" ? PUEBLO : require("./pueblo-datos.js");
   const MULTIPLICADORES = [0.25, 0.5, 1, 2, 4];
 
   function textoAño(año, presente) {
@@ -15,11 +17,21 @@ const Partida = (() => {
     const reloj = opciones.reloj ?? (() => performance.now());
     const oyentes = [];
     const emitir = e => oyentes.forEach(fn => fn(e));
-    let motor, jugando = true, mult = 2, cola = [], debe = 0;
+    let motor, pueblo = null, modoActual = "historia", jugando = true, mult = 2, cola = [], debe = 0;
 
-    function nueva(semilla) {
-      motor = MotorRef.crear(mundo, historia, { semilla, params: opciones.params });
+    function nueva(semilla, { modo = "historia", origen } = {}) {
+      modoActual = modo === "pueblo" ? "pueblo" : "historia";
+      motor = MotorRef.crear(mundo, historia, { semilla, params: opciones.params, ...(modoActual === "pueblo" ? { pueblo: { origen } } : {}) });
+      pueblo = null;   // la decisión pendiente de la partida anterior se descarta con su pueblo
       cola = []; jugando = true; debe = 0;
+      if (modoActual === "pueblo") {
+        pueblo = PuebloRef.crear(motor, historia, opciones.catalogo ?? CATALOGO, { origen, params: opciones.params });
+        pueblo.alEvento(e => {
+          if (e.tipo !== "estado") return;
+          if (opciones.pausarEnHitos !== false) jugando = false;
+          emitir({ tipo: "pueblo", estado: e.estado });
+        });
+      }
       motor.alHito(h => {
         cola.push(h);
         if (opciones.pausarEnHitos !== false) jugando = false;
@@ -44,6 +56,10 @@ const Partida = (() => {
         motor.avanzar(d);
         debe -= d;
         hecho += d;
+        if (pueblo) {
+          const dec = pueblo.revisar();
+          if (dec) { jugando = false; emitir({ tipo: "decision", decision: dec }); }
+        }
         if (reloj() - t0 >= presupuestoMs) break;
       }
       if (!jugando) debe = 0;   // tras una pausa por hito no se arrastra el resto
@@ -54,6 +70,13 @@ const Partida = (() => {
     nueva(opciones.semilla);
     return {
       motor: () => motor,
+      modo: () => modoActual,
+      pueblo: () => pueblo,
+      decisionPendiente: () => (pueblo ? pueblo.pendiente() : null),
+      elegir(opcionId) {
+        if (!pueblo) throw new Error("La partida no es de tu pueblo");
+        return pueblo.elegir(opcionId);
+      },
       nueva,
       paso,
       añosPorSegundo,
