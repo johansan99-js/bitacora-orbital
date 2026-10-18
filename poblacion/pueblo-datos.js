@@ -56,7 +56,7 @@ const PUEBLO = (() => {
         real: { texto: "En Pinnacle Point (Sudáfrica) hay marisco comido hace unos 164.000 años, en una época seca y fría. Es posible que la costa ayudara a algunos grupos a sobrevivir, pero la evidencia viene de un solo sitio.",
                 fuente: "Marean et al. (2007), Nature 449" },
         opciones: [
-          { id: "resistir", texto: "Resistir en casa", detalle: "Creces menos un tiempo; puedes volverte resistente a la sed.", efecto: { perder: 0.2, rasgo: "resistentes_sed" } },
+          { id: "resistir", texto: "Resistir en casa", detalle: "Pierdes parte de tu gente; los que quedan pueden volverse resistentes a la sed.", efecto: { perder: 0.2, rasgo: "resistentes_sed" } },
           { id: "costa", texto: "Vivir del mar", detalle: "Mejor en la costa por 5.000 años; peor tierra adentro.", efecto: { mods: { aptitud: [{ donde: { costa: true }, valor: 1.5 }] }, duracion: 5000 } },
           { id: "dispersarse", texto: "Dispersarse", detalle: "Migras más por 3.000 años; te divides en grupos pequeños.", efecto: { mods: { migracion: 3 }, duracion: 3000 } }
         ] },
@@ -67,7 +67,7 @@ const PUEBLO = (() => {
                 fuente: "Grün et al. (2005), Journal of Human Evolution 49; Lambeck et al. (2011), Quaternary Science Reviews 30" },
         opciones: [
           { id: "cruzar", texto: "Cruzar ya", detalle: "Te expandes y cruzas mares por 2.000 años; pierdes a parte de la gente.", efecto: { mods: { migracion: 4, cruce: 10 }, duracion: 2000, perder: 0.1 } },
-          { id: "esperar", texto: "Esperar en África", detalle: "Más seguros por 2.000 años, pero sin tierras nuevas.", efecto: { mods: { aptitud: [{ donde: {}, valor: 1.1 }], migracion: 0.5 }, duracion: 2000 } }
+          { id: "esperar", texto: "Esperar en África", detalle: "Vives más seguro por 2.000 años, pero sin tierras nuevas.", efecto: { mods: { aptitud: [{ donde: {}, valor: 1.1 }], migracion: 0.5 }, duracion: 2000 } }
         ] },
 
       { id: "encuentro", limite: 2, titulo: "Otros humanos",
@@ -76,7 +76,7 @@ const PUEBLO = (() => {
                 fuente: "Green et al. (2010), Science 328; Prüfer et al. (2014), Nature 505; Huerta-Sánchez et al. (2014), Nature 512" },
         opciones: [
           { id: "evitar", texto: "Evitarlos", detalle: "Evitas conflictos por 5.000 años; ocupas menos tierra.", efecto: { mods: { evitaArcaicos: true, desplaza: 0.5 }, duracion: 5000 } },
-          { id: "mezclarse", texto: "Mezclarse", detalle: "Recibes sus genes, pero los empujas más lento: menos tierra un tiempo.", efecto: { rasgo: "segun_especie", mods: { desplaza: 0.5 }, duracion: 5000 } },
+          { id: "mezclarse", texto: "Mezclarse", detalle: "Recibes sus genes, pero les ganas tierra más despacio por 5.000 años.", efecto: { rasgo: "segun_especie", mods: { desplaza: 0.5 }, duracion: 5000 } },
           { id: "competir", texto: "Competir", detalle: "Ganas tierra rápido por 5.000 años; no heredas sus genes.", efecto: { mods: { desplaza: 3, perdidaArcaicos: 0.0005 }, duracion: 5000 } }
         ] },
 
@@ -85,16 +85,16 @@ const PUEBLO = (() => {
         real: { texto: "Hay quien propone que la ropa cosida (agujas de hueso) ayudó a nuestra especie a vivir en climas fríos. Es una hipótesis discutida.",
                 fuente: "Gilligan (2010), Journal of Archaeological Method and Theory 17" },
         opciones: [
-          { id: "ropa", texto: "Inventar abrigo", detalle: "Creces menos un tiempo; vives mejor en tierras frías después.", efecto: { perder: 0.1, rasgo: "adaptados_frio" } },
+          { id: "ropa", texto: "Inventar abrigo", detalle: "Pierdes parte de tu gente; después vives mejor en tierras frías.", efecto: { perder: 0.1, rasgo: "adaptados_frio" } },
           { id: "sur", texto: "Huir al sur", detalle: "Migras más por 3.000 años; el frío te resulta peor.", efecto: { mods: { migracion: 2, aptitud: [{ donde: { frio: true }, valor: 0.7 }] }, duracion: 3000 } }
         ] },
 
-      { id: "cuello", limite: 2, titulo: "Casi la extinción",
-        texto: "Tu pueblo se ha reducido a muy poca gente. Eres frágil.",
+      { id: "cuello", limite: 2, titulo: "Un cuello de botella",
+        texto: "Tu pueblo ha perdido la mayor parte de su gente. Es un cuello de botella: de pocos supervivientes viene menos variedad genética, y lo que los mató puede dejar adaptaciones en los que quedan.",
         real: { texto: "Los genomas actuales sugieren que los antepasados de la gente de fuera de África pasaron por un cuello de botella hace decenas de miles de años. Las fechas y las causas exactas son inciertas.",
                 fuente: "Li y Durbin (2011), Nature 475" },
         opciones: [
-          { id: "seguir", texto: "Seguir adelante", detalle: "Sobrevives; la prueba te deja una ventaja según su causa.", efecto: { rasgo: "segun_causa" } }
+          { id: "seguir", texto: "Seguir adelante", detalle: "Sigues con los que quedan; si la causa es clara, te deja una adaptación a ella.", efecto: { rasgo: "segun_causa" } }
         ] },
 
       { id: "agricultura", limite: 2, titulo: "Las primeras semillas",
@@ -121,7 +121,7 @@ const PUEBLO = (() => {
                 fuente: "McNeill (1976), Plagues and Peoples" },
         opciones: [
           { id: "fundar", texto: "Fundar la ciudad", detalle: "Más gente y comercio; las epidemias golpean más fuerte.", efecto: { desbloquea: ["CIUDADES"], mods: { epidemia: 0.0003 } } },
-          { id: "aldeas", texto: "Seguir en aldeas", detalle: "Más sanos por 2.000 años; la población crece menos.", efecto: { bloquea: { bits: ["CIUDADES"], años: 2000 }, mods: { aptitud: [{ donde: {}, valor: 1.05 }] }, duracion: 2000 } }
+          { id: "aldeas", texto: "Seguir en aldeas", detalle: "Vives más sano por 2.000 años; la población crece menos.", efecto: { bloquea: { bits: ["CIUDADES"], años: 2000 }, mods: { aptitud: [{ donde: {}, valor: 1.05 }] }, duracion: 2000 } }
         ] },
 
       { id: "mar", limite: 1, titulo: "El mar abierto",

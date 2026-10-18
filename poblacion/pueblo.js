@@ -85,7 +85,8 @@ const Pueblo = (() => {
 
     // --- Estado ---
     const año0 = motor.año(), oyentes = [], registro = [], tengo = [];
-    let estado = "vivo", hasta = null, pendiente = null, ultima = año0;
+    // hasta: el año en que tu pueblo dejó de estar vivo (el de la extinción si se extinguió); disueltoEn: el de la disolución
+    let estado = "vivo", hasta = null, disueltoEn = null, pendiente = null, ultima = año0;
     const veces = new Map(), espera = new Map(), rechazos = new Map(), cerrados = new Set();
     // Efectos activos: { mods, bloqueo, hasta } (hasta = Infinity si es para siempre)
     const activos = [];
@@ -156,7 +157,8 @@ const Pueblo = (() => {
       if (estado !== "extinto" && herencia < P.minimo) estado = "extinto";
       else if (estado === "vivo" && total <= 0) estado = "disuelto";
       if (estado === antes) return;
-      if (hasta === null) hasta = motor.año();
+      hasta = motor.año();
+      if (estado === "disuelto") disueltoEn = hasta;
       pendiente = null;
       cerrarRegistro();
       oyentes.forEach(fn => fn({ tipo: "estado", estado }));
@@ -223,8 +225,9 @@ const Pueblo = (() => {
         for (let k = 0, n = motor.nHabitadas(); k < n; k++) { const i = hab[k]; if (pob[i] > 0 && (innov[i] & INDUSTRIA)) return {}; }
         return null;
       },
+      // Agricultores que navegan la costa (como los austronesios): pueden lanzarse a mar abierto
       mar() {
-        for (let h = 0; h < nMias; h++) { const i = mias[h]; if (costa[i] && (innov[i] & COSTERA)) return {}; }
+        for (let h = 0; h < nMias; h++) { const i = mias[h]; if (costa[i] && (innov[i] & COSTERA) && (innov[i] & AGRICULTURA)) return {}; }
         return null;
       }
     };
@@ -290,7 +293,7 @@ const Pueblo = (() => {
       if (motor.terminado()) { pendiente = null; throw new Error("La partida ya terminó"); }
       const m = pendiente.momento, o = m.opciones.find(x => x.id === opcionId);
       if (!o) throw new Error(`La decisión "${m.id}" no tiene la opción "${opcionId}"`);
-      const año = motor.año(), e = efectos.get(o), antes = foto();
+      const año = motor.año(), e = efectos.get(o), antes = foto(), causa = pendiente.causa;
       cerrarRegistro(antes);
       let rasgo = null, cambio = false;
       if (e.perder) motor.perderPueblo(e.perder);
@@ -317,7 +320,8 @@ const Pueblo = (() => {
       registro.push({ momento: m.id, titulo: m.titulo, opcion: o.texto, opcionId: o.id, texto: m.real.texto, fuente: m.real.fuente,
         año: Math.round(año), antes, despues: null });
       pendiente = null;
-      return { opcion: { id: o.id, texto: o.texto }, real: { texto: m.real.texto, fuente: m.real.fuente }, rasgo };
+      // causa: la de un cuello de botella ("sed", "frio", "enfermedad" o null si no fue clara); null en los demás momentos
+      return { opcion: { id: o.id, texto: o.texto }, real: { texto: m.real.texto, fuente: m.real.fuente }, rasgo, causa };
     }
     const publico = r => ({ id: r.id, nombre: r.nombre, texto: r.texto, fuente: r.fuente, año: r.año });
 
@@ -343,6 +347,7 @@ const Pueblo = (() => {
       registro: () => registro.map(r => ({ ...r })),
       resumen: () => ({
         estado, desde: Math.round(año0), hasta: Math.round(hasta ?? motor.año()),
+        disueltoEn: disueltoEn === null ? null : Math.round(disueltoEn),
         regiones: historia.regiones.filter((r, k) => llegadas[k]).map(r => r.id),
         rasgos: tengo.map(r => r.nombre),
         pueblo: pb.total(), herencia: pb.herencia(), conLinaje: pb.conLinaje(), decisiones: registro.length

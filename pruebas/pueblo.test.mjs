@@ -387,3 +387,124 @@ test("elegir sin pendiente o con una opción inexistente lanza un error", () => 
   assert.ok(pb.pendiente());   // sigue pendiente
   assert.equal(pb.elegir("esperar").opcion.id, "esperar");
 });
+
+test("frío: en una glaciación, con buena parte de tu pueblo en tierras frías", () => {
+  const glacial = [[-1e7, -125], [3000, -125]];
+  // A 60° de latitud con la glaciación: frío enseguida
+  {
+    const h = historiaDePrueba({ nivelMar: glacial, origenes: [origen(0, 3000, 60)] });
+    const { m, pb } = partida(mundoDePrueba(["0000000", "0444440", "0000000"], { latNorte: 63, lonOeste: -7 }), h, ["frio"]);
+    const d = hastaDecision(m, pb, 100);
+    assert.equal(d && d.id, "frio");
+    assert.deepEqual(d.opciones.map(o => o.id), ["ropa", "sur"]);
+    assert.equal(pb.elegir("ropa").rasgo.id, "adaptados_frio");
+  }
+  // La misma glaciación en el ecuador, o los 60° sin glaciación: nada
+  {
+    const h = historiaDePrueba({ nivelMar: glacial, origenes: [origen(0)] });
+    const { m, pb } = partida(mundoDePrueba(["0000000", "0444440", "0000000"], { lonOeste: -7 }), h, ["frio"]);
+    assert.equal(hastaDecision(m, pb, 500), null);
+  }
+  {
+    const h = historiaDePrueba({ origenes: [origen(0, 3000, 60)] });
+    const { m, pb } = partida(mundoDePrueba(["0000000", "0444440", "0000000"], { latNorte: 63, lonOeste: -7 }), h, ["frio"]);
+    assert.equal(hastaDecision(m, pb, 500), null);
+  }
+});
+
+test("ganado: tras unos años de campos en tus celdas", () => {
+  const h = historiaDePrueba({ inicio: -9600, domesticables: [{ id: "todo", nombre: "Todo", riqueza: 1, cajas: [[-90, 90, -180, 180]] }],
+    origenes: [origen(0, 6000)] });
+  const { m, pb } = partida(mundoDePrueba(["00000", "04440", "00000"]), h, ["agricultura", "ganado"], { params: { agricultura: 1, exploracion: 0, presion: 0 } });
+  assert.equal(hastaDecision(m, pb, 100).id, "agricultura");
+  pb.elegir("adoptar");
+  const pbm = m.pueblo(), v = m.celdas.innovaciones;
+  let campos = null, d = null;
+  for (let s = 0; s < 400 && !d; s++) {
+    m.avanzar(10);
+    if (campos === null && Array.from(pbm.celdas()).some(i => pbm.mayoria(i) && (v[i] & AGRICULTURA))) campos = m.año();
+    d = pb.revisar();
+  }
+  assert.ok(campos !== null, "tu pueblo nunca tuvo campos");
+  assert.equal(d && d.id, "ganado");
+  const años = d.año - campos;
+  assert.ok(años >= PUEBLO.reglas.ganadoAños && años <= PUEBLO.reglas.ganadoAños + 20, `${años} años después de los campos`);
+  assert.equal(pb.elegir("leche").rasgo.id, "lactosa");
+});
+
+test("ciudades: solo con campos y mucha gente en una de tus celdas", () => {
+  const h = historiaDePrueba({ inicio: -9600, domesticables: [{ id: "todo", nombre: "Todo", riqueza: 1, cajas: [[-90, 90, -180, 180]] }],
+    origenes: [origen(0, 6000)] });
+  const params = { agricultura: 1, exploracion: 0, presion: 0, densidadCiudad: 0.01 };
+  const { m, pb } = partida(mundoDePrueba(["00000", "04440", "00000"]), h, ["agricultura", "ciudades"], { params });
+  // Ya hay densidad de sobra, pero sin campos no hay ciudad
+  assert.equal(hastaDecision(m, pb, 100).id, "agricultura");
+  pb.elegir("adoptar");
+  const d = hastaDecision(m, pb, 3000);
+  assert.equal(d && d.id, "ciudades");
+  const pbm = m.pueblo();
+  assert.ok(Array.from(pbm.celdas()).some(i => pbm.mayoria(i) && (m.celdas.innovaciones[i] & AGRICULTURA)));
+  pb.elegir("fundar");
+  assert.equal(m.ultimos.bloqueo & Motor.INNOVACION.CIUDADES, 0);
+});
+
+test("industria: con escritura en tus celdas y máquinas en algún lugar del mundo", () => {
+  const { ESCRITURA, INDUSTRIA } = Motor.INNOVACION;
+  const h = historiaDePrueba({ origenes: [origen(0)] });
+  const { m, pb } = partida(mundoDePrueba(["00000", "04440", "00000"]), h, ["industria"]);
+  m.avanzar(10);
+  assert.equal(pb.revisar(), null);
+  const v = m.celdas.innovaciones, pbm = m.pueblo(), mias = Array.from(pbm.celdas()).filter(i => pbm.mayoria(i));
+  // Industria sin escritura en tus celdas: nada
+  v[mias[0]] |= INDUSTRIA;
+  assert.equal(pb.revisar(), null);
+  v[mias[0]] &= ~INDUSTRIA;
+  // Escritura sin industria en ningún lado: nada
+  for (const i of mias) v[i] |= ESCRITURA;
+  assert.equal(pb.revisar(), null);
+  v[mias[mias.length - 1]] |= INDUSTRIA;
+  assert.equal(pb.revisar().id, "industria");
+});
+
+test("mar abierto: solo agricultores con navegación costera en una de tus costas", () => {
+  const { COSTERA } = Motor.INNOVACION;
+  const h = historiaDePrueba({ origenes: [origen(0)] });
+  const { m, pb } = partida(mundoDePrueba(["00000", "04440", "00000"]), h, ["mar"]);
+  m.avanzar(10);
+  assert.equal(pb.revisar(), null);
+  const v = m.celdas.innovaciones, pbm = m.pueblo(), mias = Array.from(pbm.celdas()).filter(i => pbm.mayoria(i) && m.celdas.costa[i]);
+  assert.ok(mias.length > 0);
+  // Navegación costera sola (recolectores que pescan en la costa): nada
+  for (const i of mias) v[i] |= COSTERA;
+  assert.equal(pb.revisar(), null);
+  // Campos sin navegación: nada
+  for (const i of mias) v[i] = (v[i] & ~COSTERA) | AGRICULTURA;
+  assert.equal(pb.revisar(), null);
+  // Las dos en la misma celda costera: sí
+  v[mias[0]] |= COSTERA;
+  const d = pb.revisar();
+  assert.equal(d && d.id, "mar");
+  assert.deepEqual(d.opciones.map(o => o.id), ["explorar", "quedarse"]);
+});
+
+test("si tu pueblo se disuelve y después se extingue su linaje, el resumen guarda los dos años", () => {
+  const h = historiaDePrueba({ origenes: [origen(0, 3000), { ...origen(0, 2000), nombre: "otros" }] });
+  const { m, pb } = partida(conDesierto(), h, ["frontera"]);
+  assert.ok(hastaDecision(m, pb, 100));
+  m.perderPueblo(0.9);
+  m.avanzar(10);
+  pb.revisar();
+  assert.equal(pb.estado(), "disuelto");
+  const disuelto = Math.round(m.año());
+  assert.equal(pb.resumen().hasta, disuelto);
+  assert.equal(pb.resumen().disueltoEn, disuelto);
+  for (let s = 0; s < 10; s++) { m.avanzar(10); pb.revisar(); }
+  // Muere todo el mundo: el linaje se extingue
+  m.celdas.poblacion.fill(0);
+  pb.revisar();
+  const r = pb.resumen();
+  assert.equal(r.estado, "extinto");
+  assert.equal(r.disueltoEn, disuelto);
+  assert.equal(r.hasta, Math.round(m.año()));
+  assert.ok(r.hasta > r.disueltoEn);
+});

@@ -16,8 +16,8 @@ test("tu pueblo no cambia (semilla 4242, este de África, siempre la primera opc
     const d = pb.revisar();
     if (d) { decisiones.push(d.id); pb.elegir(d.opciones[0].id); }
   }
-  assert.equal(decisiones.join(","), "frontera,frontera,cuello,cuello,mar,frontera,encuentro,encuentro");
-  assert.equal(huella(m), "b912f324");
-  assert.equal(Math.round(m.pueblo().total()), 595617);
-  assert.equal(Math.round(m.pueblo().herencia()), 3772964);
+  assert.equal(decisiones.join(","), "frontera,frontera,cuello,cuello,frontera,encuentro,encuentro");
+  assert.equal(huella(m), "08b562be");
+  assert.equal(Math.round(m.pueblo().total()), 509924);
+  assert.equal(Math.round(m.pueblo().herencia()), 3806508);
 });
