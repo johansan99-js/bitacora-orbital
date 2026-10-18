@@ -60,7 +60,7 @@ const Motor = (() => {
     ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
     desplaza: 0.005,         // ritmo por año con que se retiran los arcaicos ante un saber mayor
     asimila: 0.35,           // tu pueblo: por debajo de esta fracción de una celda, los tuyos se integran a los demás
-    seleccion: 0.002         // tu pueblo: ritmo por año con que la aptitud cambia la parte de los tuyos en una celda
+    seleccion: 0.0025        // tu pueblo: ritmo por año con que la aptitud cambia la parte de los tuyos en una celda
   };
   // Modificadores de tu pueblo que no cambian nada (los que falten en setModificadores toman estos valores)
   const MODS_NEUTROS = Object.freeze({ aptitud: [], capacidad: [], migracion: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo: 0 });
