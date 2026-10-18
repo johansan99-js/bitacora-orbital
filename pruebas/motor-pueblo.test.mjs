@@ -198,7 +198,8 @@ test("las epidemias cuestan gente en tus celdas urbanas", () => {
     origenes: [0, -2, 2].map(lon => ({ nombre: `C${lon}`, lat: 0, lon, personas: 6000 })) });
   const params = { ...SIN_AZAR, exploracion: 0, presion: 0, agricultura: 1, ciudades: 1, densidadCiudad: 1 };
   const tres = () => mundoDePrueba(["00000", "04440", "00000"]);
-  const neutro = conMods(tres(), h, Motor.MODS_NEUTROS, { params }), enferma = conMods(tres(), h, { epidemia: 0.001 }, { params });
+  // La misma semilla en las dos: con semillas al azar el margen de la epidemia (≈ 12 %) a veces quedaba dentro del ruido
+  const neutro = conMods(tres(), h, Motor.MODS_NEUTROS, { params, semilla: 7 }), enferma = conMods(tres(), h, { epidemia: 0.001 }, { params, semilla: 7 });
   neutro.avanzar(3000); enferma.avanzar(3000);
   const i = neutro.celdaDe(0, 0);
   assert.ok(neutro.celdas.innovaciones[i] & Motor.INNOVACION.CIUDADES);
