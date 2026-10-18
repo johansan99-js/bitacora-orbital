@@ -47,6 +47,9 @@ function historia(semilla) {
 
 const res = Object.fromEntries(Object.keys(POLITICAS).map(k => [k, { decisiones: [], vivos: 0, herencias: [], pueblos: [], ms: [], estados: {} }]));
 const msHistoria = [];
+const azarOtro = s => { const r = generador(s * 7919 + 17 + 1000003); return d => Math.floor(r() * d.opciones.length); };
+const azar2 = [];
+let vivosAzar2 = 0;
 for (let s = 1; s <= n; s++) {
   const origen = (s - 1) % 3;   // partida % 3, contando desde 0
   // Historia con la misma semilla, intercalada para que el ruido de la máquina afecte igual a ambos modos
@@ -64,6 +67,10 @@ for (let s = 1; s <= n; s++) {
     if (r.vivo) x.vivos++;
     x.estados[r.estado] = (x.estados[r.estado] || 0) + 1;
   }
+  // Referencia de ruido para "las decisiones importan": otro jugador al azar con otra semilla de su generador
+  const r2 = jugar(s, origen, azarOtro(s));
+  azar2.push(r2.pueblo);
+  if (r2.vivo) vivosAzar2++;
   process.stdout.write(".");
 }
 
@@ -100,11 +107,15 @@ const pols = Object.values(res);
 const razones = Array.from({ length: n }, (_, s) => { const v = pols.map(x => x.pueblos[s]); return Math.max(...v) / Math.max(Math.min(...v), 1); });
 const rMed = pct(razones, 0.5), vivos = pols.map(x => x.vivos / n), dVivos = Math.max(...vivos) - Math.min(...vivos);
 const importan = rMed >= 1.5 || dVivos >= 0.2;
+// La misma cuenta entre dos jugadores al azar (solo informativa): lo que da el puro azar de las decisiones
+const ruido = pct(Array.from({ length: n }, (_, s) => { const v = [res.azar.pueblos[s], azar2[s]]; return Math.max(...v) / Math.max(Math.min(...v), 1); }), 0.5);
+const dVivosRuido = Math.abs(res.azar.vivos - vivosAzar2) / n;
 const az = res.azar.vivos / n, azBien = az >= 0.3 && az <= 0.85;
 const tMejor = Math.min(...rondas), tBien = tMejor <= 1.15;
 ok = ok && pols.every(decBien) && azBien && importan && tBien;
 console.log(`${pols.every(decBien) ? "✓" : "✗"} decisiones por partida (con el Nacimiento): mediana entre 8 y 14 en cada política`);
 console.log(`${azBien ? "✓" : "✗"} jugador al azar: tu pueblo llega a ${P} en ${res.azar.vivos}/${n} partidas (ventana 30 %–85 %)`);
 console.log(`${importan ? "✓" : "✗"} las decisiones importan: por semilla, tu pueblo final de la mejor política sobre la peor (mín. 1) tiene mediana ${rMed >= 1e6 ? rMed.toExponential(1) : rMed.toFixed(2)} (mínimo 1,5); vivos en ${P}: ${pols.map(x => `${Math.round(100 * x.vivos / n)} %`).join(" / ")} (diferencia ${Math.round(100 * dVivos)} puntos; o al menos 20)`);
+console.log(`· referencia de ruido (informativa): dos jugadores al azar con distinta semilla dan una mediana de ${ruido >= 1e6 ? ruido.toExponential(1) : ruido.toFixed(2)}; vivos en ${P}: ${res.azar.vivos}/${n} y ${vivosAzar2}/${n} (diferencia ${Math.round(100 * dVivosRuido)} puntos)`);
 console.log(`${tBien ? "✓" : "✗"} tiempo por partida: mejor de 3 rondas pareadas (semillas ${semT[0]}–${semT[semT.length - 1]}, Historia y las tres políticas en la misma corrida): ${tMejor.toFixed(2)}× (rondas ${rondas.map(r => r.toFixed(2)).join(", ")}; máximo 1,15). Medianas de las ${n} partidas, informativas: Historia ${Math.round(tH)} ms`);
 process.exit(ok ? 0 : 1);

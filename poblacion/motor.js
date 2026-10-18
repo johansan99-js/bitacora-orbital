@@ -258,6 +258,8 @@ const Motor = (() => {
       if (x !== ultX) { ultX = x; ultE = Math.exp(x); }   // las celdas llenas repiten el mismo valor
       const sale = p * (1 - ultE);
       if (sale < minimo) continue;
+      // Este cálculo de pesos y la poda de abajo tienen copia en migrarConPueblo (y la poda, en podar): deben cambiar a la par.
+      // Lo guardan las huellas de motor-historia.test.mjs (este camino) y de pruebas/pueblo-huella.test.mjs (la copia).
       let suma = 0, wMin = Infinity;
       for (let k = 0; k < 8; k++) {
         const j = vecinas[i * 8 + k];
@@ -331,6 +333,8 @@ const Motor = (() => {
       if (x !== ultX) { ultX = x; ultE = Math.exp(x); }   // las celdas llenas repiten el mismo valor
       const sale = p * (1 - ultE);
       if (sale < minimo) continue;
+      // Este cálculo de pesos y la poda de abajo son copia de los de migrar (y la poda, de podar): deben cambiar a la par. Lo
+      // guardan las huellas de pruebas/pueblo-huella.test.mjs (este camino) y de motor-historia.test.mjs (el de migrar).
       let suma = 0, wMin = Infinity;
       for (let k = 0; k < 8; k++) {
         const j = vecinas[i * 8 + k];
