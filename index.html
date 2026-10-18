@@ -1491,6 +1491,8 @@ function crearEspacio() {
   let simDays = daysNow();
 
   const round = new THREE.CanvasTexture(Tex.glow("rgba(255,255,255,1)", "rgba(255,255,255,0.6)"));
+  const blanco = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  blanco.needsUpdate = true;
 
   // Estrellas de fondo y banda de la Vía Láctea
   function starField(count, rMin, rMax, size, band) {
@@ -1546,9 +1548,10 @@ function crearEspacio() {
     const holder = new THREE.Object3D(), tilt = new THREE.Object3D();
     tilt.rotation.z = THREE.MathUtils.degToRad(b.tilt);
     holder.add(tilt);
-    // Hasta que llega su textura (la imagen real o, si no tiene, la procedimental en reposo) el astro se ve de su color
+    // Hasta que llega su textura (la imagen real o, si no tiene, la procedimental en reposo) el astro se ve de su color.
+    // Ya lleva un mapa (uno blanco de 1 píxel) para que cambiarlo por el de verdad no obligue a compilar otro shader.
     const seg = b.r > 2 ? 96 : 64;
-    const mat = b.id === "sol" ? new THREE.MeshBasicMaterial({ color: b.color }) : new THREE.MeshStandardMaterial({ color: b.color, roughness: 0.92, metalness: 0 });
+    const mat = b.id === "sol" ? new THREE.MeshBasicMaterial({ map: blanco, color: b.color }) : new THREE.MeshStandardMaterial({ map: blanco, color: b.color, roughness: 0.92, metalness: 0 });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(b.r, seg, seg / 2), mat);
     tilt.add(mesh);
     // Los gigantes con lunas cercanas usan un área de toque más ajustada para no tapar a sus lunas
@@ -1633,19 +1636,23 @@ function crearEspacio() {
     }
     return procedurales.get(b.id);
   }
+  // Cada imagen que llega se aplica en su propio cuadro (ver dibujar): su subida a la GPU y el shader nuevo que pida
+  // no se juntan con los de las demás en un único cuadro largo
+  const porAplicar = [];
+  const alLlegar = (promesa, fn) => promesa.then(t => { porAplicar.push(() => fn(t)); });
   function ponerMapa(b, t) { const m = b.mesh.material; m.map = t; m.color.set(0xffffff); m.needsUpdate = true; }
   bodies.filter(b => !REAL[b.id] && b.id !== "tierra").forEach(b => enCola.push(() => ponerMapa(b, texturaProcedural(b))));
   Object.entries(REAL).forEach(([id, r]) => {
     const b = byId[id], m = b.mesh.material;
-    loadTex(r.map).then(t => ponerMapa(b, t || texturaProcedural(b)));
-    if (r.bump) loadTex(r.bump).then(t => { if (t) { m.bumpMap = t; m.bumpScale = 0.012; m.needsUpdate = true; } });
+    alLlegar(loadTex(r.map), t => ponerMapa(b, t || texturaProcedural(b)));
+    if (r.bump) alLlegar(loadTex(r.bump), t => { if (t) { m.bumpMap = t; m.bumpScale = 0.012; m.needsUpdate = true; } });
   });
   function nubesProcedurales() {
     const cl = byId.tierra._clouds;
     cl.material.map = new THREE.CanvasTexture(Tex.clouds(77)); cl.material.needsUpdate = true; cl.visible = true;
   }
   // Tierra: día iluminado, luces de ciudades en el lado nocturno y reflejo del Sol en los océanos
-  Promise.all(TEX_TIERRA.map(loadTex)).then(([day, night, spec, clouds]) => {
+  alLlegar(Promise.all(TEX_TIERRA.map(loadTex)), ([day, night, spec, clouds]) => {
     if (!day || !night || !spec) { ponerMapa(byId.tierra, texturaProcedural(byId.tierra)); nubesProcedurales(); return; }
     byId.tierra.mesh.material = new THREE.ShaderMaterial({
       uniforms: { dayMap: { value: day }, nightMap: { value: night }, specMap: { value: spec } },
@@ -1672,7 +1679,7 @@ function crearEspacio() {
     } else nubesProcedurales();
   });
   // Anillos de Saturno: textura real y la sombra del planeta calculada en cada punto del anillo
-  loadTex("saturn_ring.png").then(t => {
+  alLlegar(loadTex("saturn_ring.png"), t => {
     const sat = byId.saturno;
     sat._ring.visible = true;
     if (!t) { sat._ring.material.map = new THREE.CanvasTexture(Tex.rings()); sat._ring.material.needsUpdate = true; return; }
@@ -1840,9 +1847,19 @@ function crearEspacio() {
   const ORDER = SCALES.map(s => s.id);
   const objById = {};
   const aspectK = () => Math.min(2.6, Math.max(1, 1.25 / camera.aspect));
+  // Las demás escalas se construyen la primera vez que hacen falta (las lejanas, antes, en reposo; "La Tierra", al entrar).
+  // Hasta entonces, cada objeto con ficha se ubica en su escala por los datos.
+  const CONSTRUIR = {};
+  const nivelDeObj = {};
+  ["stars", "galaxy", "group"].forEach(lv => COSMOS[lv].forEach(o => { nivelDeObj[o.id] = lv; }));
+  if (typeof HISTORIA !== "undefined") HISTORIA.continentes.forEach(c => { nivelDeObj[c.id] = "tierra"; });
+  function escala(id) {
+    if (!LV[id] && CONSTRUIR[id]) { CONSTRUIR[id](); prepararEscala(id); }
+    return LV[id];
+  }
 
   // Estrellas vecinas: 1 unidad = 1 año luz, mismo marco eclíptico que la escena solar
-  {
+  CONSTRUIR.stars = () => {
     const sc = new THREE.Scene(); backdrop(sc, 7000, 700, 1100, 1.5, 1); backdrop(sc, 500, 700, 1100, 2.8, 1);
     sc.add(new THREE.AmbientLight(0xffffff, 1));
     const stems = [];
@@ -1861,10 +1878,10 @@ function crearEspacio() {
     });
     LV.stars = { scene: sc, minD: 1, maxD: 260, tgt: new THREE.Vector3(), over: () => new THREE.Vector3(0, 48, 95).multiplyScalar(aspectK()),
       anchor: new THREE.Vector3(), near: 0.7, objs: [...COSMOS.stars, ...deco] };
-  }
+  };
 
   // Vía Láctea: 1 unidad = 1.000 años luz; centro en el origen, el Sol en (−26, 0, 0)
-  {
+  CONSTRUIR.galaxy = () => {
     const sc = new THREE.Scene(); backdrop(sc, 2500, 900, 1400, 1.4, 0.55);
     const mw = spiral({ R: 50, n: 110000, size: 2, atten: false, spur: true }); sc.add(mw);
     const sun = new THREE.Vector3(-26, 0, 0);
@@ -1881,10 +1898,10 @@ function crearEspacio() {
     const core = sprite("#fff1d0", 7, 0.45); sc.add(core);
     LV.galaxy = { scene: sc, minD: 2, maxD: 320, tgt: new THREE.Vector3(), over: () => new THREE.Vector3(0, 100, 48).multiplyScalar(aspectK()),
       anchor: sun, near: 1.6, objs: COSMOS.galaxy, spin: mw };
-  }
+  };
 
   // Grupo Local: 1 unidad = 10.000 años luz; la Vía Láctea en el origen
-  {
+  CONSTRUIR.group = () => {
     const sc = new THREE.Scene(); backdrop(sc, 3500, 1800, 2800, 1.6, 0.6);
     const orient = (obj, pos, incl) => {
       if (!pos.lengthSq()) return;
@@ -1916,30 +1933,35 @@ function crearEspacio() {
     const perp = and.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
     LV.group = { scene: sc, minD: 2, maxD: 1300, tgt: mid.clone(), over: () => mid.clone().addScaledVector(perp, 270 * aspectK()).add(new THREE.Vector3(0, 110, 0)),
       anchor: new THREE.Vector3(), near: 9, objs: [...COSMOS.group, ...deco] };
-  }
+  };
 
-  // La Tierra habitada (poblacion/*.js). Si algo falla, la escala queda vacía con un aviso y el resto sigue igual.
+  // La Tierra habitada (poblacion/*.js), con su partida: se crean la primera vez que se entra a la escala.
+  // Si algo falla, la escala queda vacía con un aviso y el resto sigue igual.
   let partidaTierra = null;
+  const puedeTierra = typeof VistaTierra !== "undefined" && typeof Partida !== "undefined" && typeof MUNDO !== "undefined" && typeof HISTORIA !== "undefined";
   // Mientras llega earth_day.jpg el globo usa el color del mar; si no llega, la textura procedimental de la Tierra
   const mar = new THREE.DataTexture(new Uint8Array([31, 63, 107, 255]), 1, 1, THREE.RGBAFormat);
   mar.needsUpdate = true;
-  try {
-    if (typeof VistaTierra === "undefined") throw new Error("No se cargó poblacion/vista.js");
-    partidaTierra = Partida.crear(MUNDO, HISTORIA);
-    LV.tierra = VistaTierra.crear({
-      partida: partidaTierra, historia: HISTORIA, punto: round, aspectK, reduceMotion, respaldo: mar,
-      cargarTextura: name => loadTex(name).then(t => t || (name === "earth_day.jpg" ? texturaProcedural(byId.tierra) : null)),
-      fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
-    });
-  } catch (e) {
-    console.error("La Tierra habitada no está disponible:", e);
-    partidaTierra = null;
-    LV.tierra = { scene: new THREE.Scene(), minD: 12, maxD: 60, tgt: new THREE.Vector3(), anchor: new THREE.Vector3(), near: 26,
-      over: () => new THREE.Vector3(0, 9, 28), objs: [], fallo: true };
-  }
+  CONSTRUIR.tierra = () => {
+    try {
+      if (typeof VistaTierra === "undefined") throw new Error("No se cargó poblacion/vista.js");
+      const partida = Partida.crear(MUNDO, HISTORIA);
+      LV.tierra = VistaTierra.crear({
+        partida, historia: HISTORIA, punto: round, aspectK, reduceMotion, respaldo: mar,
+        cargarTextura: name => loadTex(name).then(t => t || (name === "earth_day.jpg" ? texturaProcedural(byId.tierra) : null)),
+        fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
+      });
+      partidaTierra = partida;
+    } catch (e) {
+      console.error("La Tierra habitada no está disponible:", e);
+      partidaTierra = null;
+      LV.tierra = { scene: new THREE.Scene(), minD: 12, maxD: 60, tgt: new THREE.Vector3(), anchor: new THREE.Vector3(), near: 26,
+        over: () => new THREE.Vector3(0, 9, 28), objs: [], fallo: true };
+    }
+  };
 
-  // Etiquetas y áreas de toque de las escalas cósmicas
-  ORDER.filter(id => id !== "solar").forEach(id => {
+  // Etiquetas y áreas de toque de una escala recién construida
+  function prepararEscala(id) {
     const L = LV[id];
     L.labels = document.createElement("div"); L.labels.hidden = true; labelsEl.appendChild(L.labels);
     L.hits = [];
@@ -1957,8 +1979,11 @@ function crearEspacio() {
       }
       L.labels.appendChild(t); o._tag = t;
     });
-  });
-  if (LV.tierra.oclusor) LV.tierra.hits.push(LV.tierra.oclusor);
+    if (L.oclusor) L.hits.push(L.oclusor);
+  }
+  // Las escalas lejanas se arman en reposo, cada una en su tarea, y sus shaders se compilan ahí mismo
+  // para que el primer cuadro al entrar no se trabe
+  ["stars", "galaxy", "group"].forEach(id => enCola.push(() => { if (!LV[id]) { escala(id); renderer.compile(LV[id].scene, camera); } }));
   let lvl = "solar", focusObj = null;
   // Si dos nombres se encimarían, gana el objeto enfocado y luego el más grande o brillante
   const rank = o => (focusObj === o ? 1e6 : 0) + (o.enter ? 100 : 0) + (o.deco ? -1 : (o.s || o.R || (o.near ? 0.5 : o.r ? 3 : 1)));
@@ -1988,11 +2013,11 @@ function crearEspacio() {
   // Cambio de escala: fundido rápido y la cámara sale desde el objeto de la escala anterior (o entra desde lejos)
   const fade = document.getElementById("fade");
   function setLevel(id, quiet) {
-    if (id === lvl || !LV[id]) return;
+    if (id === lvl || !escala(id)) return;
     const up = ORDER.indexOf(id) > ORDER.indexOf(lvl), L = LV[id];
     lvl = id; focus = null; focusConst = null; focusObj = null; fly = null; controls.enabled = true;
     solarLabels.hidden = id !== "solar";
-    ORDER.forEach(k => { if (LV[k].labels) LV[k].labels.hidden = k !== id; });
+    ORDER.forEach(k => { if (LV[k] && LV[k].labels) LV[k].labels.hidden = k !== id; });
     controls.minDistance = L.minD; controls.maxDistance = L.maxD;
     const over = L.over();
     if (up) { controls.target.copy(L.anchor); camera.position.copy(L.anchor).add(new THREE.Vector3(0, L.near * 0.45, L.near)); }
@@ -2058,9 +2083,9 @@ function crearEspacio() {
     flyTo(() => tgt, () => cam, 2.2);
   }
   function select(id) {
-    const lv = objById[id] ? objById[id].lv : "solar";
+    const lv = nivelDeObj[id] || "solar";
     if (lv !== lvl) setLevel(lv, true);
-    if (lv !== "solar") return selectObj(objById[id]);
+    if (lv !== "solar") return objById[id] && lvl === lv ? selectObj(objById[id]) : undefined;
     if (constById[id]) return selectConst(constById[id]);
     const b = byId[id]; if (!b) return;
     focus = b; focusConst = null;
@@ -2118,6 +2143,8 @@ function crearEspacio() {
     const solar = lvl === "solar";
     if (solar && focus) last.copy(focus.world);
     place();
+    const aplicar = porAplicar.shift();
+    if (aplicar) aplicar();
     if (playing) {
       bodies.forEach(b => { if (!b.parent) b.mesh.rotation.y += b.spin * dt; });
       byId.tierra._clouds.rotation.y += 0.03 * dt;
@@ -2174,8 +2201,10 @@ function crearEspacio() {
     today() { simDays = daysNow(); },
     date() { return new Date(J2000 + simDays * 86400000); },
     setInset(x, y) { inset = { x, y }; applyOffset(); },
-    tierra: { partida: partidaTierra, get fallo() { return !!LV.tierra.fallo; }, setCapa(n, on) { if (LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
-      centroPueblo() { return LV.tierra.centroPueblo ? LV.tierra.centroPueblo() : null; } },
+    // La partida es null hasta la primera entrada a "La Tierra" (y si la escala falló)
+    tierra: { get partida() { return partidaTierra; }, get fallo() { return LV.tierra ? !!LV.tierra.fallo : !puedeTierra; },
+      setCapa(n, on) { if (LV.tierra && LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
+      centroPueblo() { return LV.tierra && LV.tierra.centroPueblo ? LV.tierra.centroPueblo() : null; } },
     // Vuela sobre un punto del globo (vector unitario desde el centro de la Tierra)
     apuntar(n, dist = 24) {
       if (lvl !== "tierra") return;
@@ -2346,6 +2375,7 @@ function crearEspacio() {
   let panel = null, modoElegido = false;
   const SIN_PANEL = "No se pudo cargar el panel de La Tierra: no hay avisos ni partidas nuevas. Recarga la página para intentarlo de nuevo.";
   Space.onLevel = lv => {
+    if (lv === "tierra") prepararTierra();
     zoom.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", String(b.dataset.lv === lv)));
     buildDock(lv);
     if (current) markDock(current.id);
@@ -2383,7 +2413,8 @@ function crearEspacio() {
   Space.onConsts = on => { $("opt-const").setAttribute("aria-checked", String(on)); $("labels").classList.toggle("no-const", !on); };
 
   // Reloj: el del sistema solar o, en la escala "La Tierra", el de la partida de población
-  const speed = $("speed"), dateOut = $("date-out"), partida = Space.tierra.partida;
+  const speed = $("speed"), dateOut = $("date-out");
+  let partida = null;   // la de "La Tierra": existe desde la primera vez que se entra a esa escala (ver prepararTierra)
   const enTierra = () => !!partida && !Space.tierra.fallo && Space.level() === "tierra";
   const velocidad = { solar: 2, tierra: 2 };
   let playing = true;
@@ -2422,12 +2453,6 @@ function crearEspacio() {
     if (!enTierra()) return Space.today();
     if (panel) panel.elegirModo();
     else Aviso.mostrar(SIN_PANEL, { recargar: true });
-  });
-  if (partida) partida.alEvento(e => {
-    if (!enTierra()) return;
-    showPlaying(partida.reproduciendo());
-    // La ficha abierta de un continente se actualiza con cada hito, partida nueva o fin
-    if (e.tipo !== "pausa" && current && current.lv === "tierra" && !sheet.classList.contains("closed")) fill(current);
   });
   setInterval(tickDate, 200);
   // Si la escala "La Tierra" falla durante la partida, la interfaz se entera y muestra el aviso
@@ -2551,8 +2576,18 @@ function crearEspacio() {
   }
   $("btn-quiz").addEventListener("click", () => { openModal("quiz"); renderLevels(); });
 
-  // La Tierra habitada: tarjeta, avisos de hitos y Bitácora
-  if (partida && typeof PanelTierra !== "undefined") {
+  // La Tierra habitada: la vista crea la partida al entrar por primera vez a la escala, y entonces la interfaz se engancha
+  // a ella (reloj y ficha) y arma el panel: tarjeta, avisos de hitos y Bitácora
+  function prepararTierra() {
+    if (partida || !Space.tierra.partida) return;
+    partida = Space.tierra.partida;
+    partida.alEvento(e => {
+      if (!enTierra()) return;
+      showPlaying(partida.reproduciendo());
+      // La ficha abierta de un continente se actualiza con cada hito, partida nueva o fin
+      if (e.tipo !== "pausa" && current && current.lv === "tierra" && !sheet.classList.contains("closed")) fill(current);
+    });
+    if (typeof PanelTierra === "undefined") return;
     try { panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal,
       centroPueblo: () => Space.tierra.centroPueblo() }); }
     catch (e) { console.error("El panel de La Tierra no está disponible:", e); panel = null; }
