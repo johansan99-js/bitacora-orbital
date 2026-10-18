@@ -409,6 +409,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   .lightbar i, .q-progress i, .hint { transition: none; }
   #cargando { animation: none; }
 }
+/* Pantallas táctiles: sin desenfoque detrás de los paneles. En un teléfono el desenfoque se recalcula en cada cuadro del
+   lienzo y es de lo más caro de la página; a cambio, el fondo es un poco más opaco. */
+@media (pointer: coarse) {
+  :root { --panel: rgba(9, 13, 24, 0.9); }
+  .chip, .bodies, .clock, .sheet-in, .zoom, .t-card { backdrop-filter: none; }
+}
 </style>
 <div id="app">
   <noscript><div class="aviso-app"><p>Bitácora Orbital necesita JavaScript para funcionar. Actívalo en tu navegador y vuelve a cargar la página.</p></div></noscript>
@@ -1435,7 +1441,10 @@ function espacioNulo() {
 function crearEspacio() {
   const canvas = document.getElementById("scene");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  // En pantallas táctiles (teléfonos y tabletas) la resolución del lienzo se limita a 1,5 píxeles por punto: con 2 o más,
+  // cada cuadro rellena casi el doble de píxeles y la diferencia apenas se ve en una pantalla pequeña
+  const tactil = matchMedia("(pointer: coarse)").matches;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tactil ? 1.5 : 2));
   renderer.setClearColor(0x04060c, 1);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 8000);
@@ -1444,6 +1453,9 @@ function crearEspacio() {
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.minDistance = 2; controls.maxDistance = 700; controls.enablePan = false;
   controls.rotateSpeed = 0.6; controls.zoomSpeed = 0.9;
+  // `sucio`: algo cambió y hay que volver a dibujar la escena (ver dibujar)
+  let sucio = true, ultimoDibujo = 0;
+  controls.addEventListener("change", () => { sucio = true; });
 
   /* Texturas reales (mapas de NASA y Planet Pixel Emporium). Se piden antes de construir nada, así bajan mientras el hilo
      principal arma la escena. Cada imagen se pide una sola vez: la Tierra del sistema solar y la de "La Tierra" comparten
@@ -1637,7 +1649,7 @@ function crearEspacio() {
   // no se juntan con los de las demás en un único cuadro largo
   const porAplicar = [];
   const alLlegar = (promesa, fn) => promesa.then(t => { porAplicar.push(() => fn(t)); });
-  function ponerMapa(b, t) { const m = b.mesh.material; m.map = t; m.color.set(0xffffff); m.needsUpdate = true; }
+  function ponerMapa(b, t) { const m = b.mesh.material; m.map = t; m.color.set(0xffffff); m.needsUpdate = true; sucio = true; }
   bodies.filter(b => !REAL[b.id] && b.id !== "tierra").forEach(b => enCola.push(() => ponerMapa(b, texturaProcedural(b))));
   Object.entries(REAL).forEach(([id, r]) => {
     const b = byId[id], m = b.mesh.material;
@@ -2014,7 +2026,8 @@ function crearEspacio() {
   function setLevel(id, quiet) {
     if (id === lvl || !escala(id)) return;
     const up = ORDER.indexOf(id) > ORDER.indexOf(lvl), L = LV[id];
-    lvl = id; focus = null; focusConst = null; focusObj = null; fly = null; controls.enabled = true;
+    lvl = id; focus = null; focusConst = null; focusObj = null; fly = null; controls.enabled = true; sucio = true;
+    if (id === "solar") place();   // fuera de su escala los astros no se mueven (ver dibujar)
     solarLabels.hidden = id !== "solar";
     ORDER.forEach(k => { if (LV[k] && LV[k].labels) LV[k].labels.hidden = k !== id; });
     controls.minDistance = L.minD; controls.maxDistance = L.maxD;
@@ -2121,6 +2134,7 @@ function crearEspacio() {
     renderer.setSize(W, H, false);
     camera.aspect = W / H;
     applyOffset();
+    sucio = true;
   }
 
   // Se pide el cuadro siguiente antes de dibujar: un error nunca corta el bucle. El primer error sale en la consola y,
@@ -2136,14 +2150,22 @@ function crearEspacio() {
     // Tras el primer cuadro empieza el trabajo de fondo
     if (primerCuadro) { primerCuadro = false; Aviso.cargado(); enReposo(seguirCola); }
   }
+  // Dibujar solo cuando algo cambia (R4). Se dibuja en cada cuadro mientras hay movimiento: un vuelo de cámara, el
+  // arrastre o la inercia de los controles, el sistema solar con el tiempo corriendo, "La Tierra" (su partida y sus
+  // bandas siempre se mueven) o una textura que acaba de llegar. Una escala quieta no se vuelve a dibujar hasta que algo
+  // la ensucia (cambio de tamaño, órbitas, constelaciones...), con un cuadro de seguridad cada medio segundo.
+  // Con un modal abierto (cuestionario, misiones, Bitácora...) la escena queda quieta detrás: no se dibuja nada.
+  const modales = document.getElementsByClassName("modal");
+  const hayModal = () => { for (const m of modales) if (!m.hidden) return true; return false; };
   function dibujar() {
     const dt = Math.min(clock.getDelta(), 0.1), days = playing ? dt * SPEEDS[speedIdx][0] : 0;
     simDays += days;
     const solar = lvl === "solar";
     if (solar && focus) last.copy(focus.world);
-    place();
+    // Las posiciones de los astros solo hacen falta en su escala (setLevel las pone al día al volver a ella)
+    if (solar) place();
     const aplicar = porAplicar.shift();
-    if (aplicar) aplicar();
+    if (aplicar) { aplicar(); sucio = true; }
     if (playing) {
       bodies.forEach(b => { if (!b.parent) b.mesh.rotation.y += b.spin * dt; });
       byId.tierra._clouds.rotation.y += 0.03 * dt;
@@ -2167,7 +2189,11 @@ function crearEspacio() {
       try { LV[lvl].update(dt); }
       catch (e) { console.error(`La escala "${lvl}" falló y se desactivó:`, e); LV[lvl].update = null; LV[lvl].fallo = true; }
     }
-    controls.update();
+    const movida = controls.update();
+    const ahora = performance.now();
+    const animada = fly || movida || (solar && playing) || lvl === "tierra";
+    if (hayModal() ? !sucio : !(animada || sucio || ahora - ultimoDibujo > 500)) return;
+    sucio = false; ultimoDibujo = ahora;
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);
   }
@@ -2193,13 +2219,13 @@ function crearEspacio() {
     onPick: null, onLevel: null, select, overview, resize,
     setLevel(id) { setLevel(id, false); },
     level: () => lvl,
-    setOrbits(on) { orbitLines.visible = on; bodies.forEach(b => { if (b.parent) b._orbit.visible = on; }); },
-    setConsts(on) { constGroup.visible = on; api.onConsts && api.onConsts(on); },
+    setOrbits(on) { orbitLines.visible = on; bodies.forEach(b => { if (b.parent) b._orbit.visible = on; }); sucio = true; },
+    setConsts(on) { constGroup.visible = on; sucio = true; api.onConsts && api.onConsts(on); },
     setSpeed(i) { speedIdx = i; return SPEEDS[i][1]; },
-    setPlaying(p) { playing = p; },
-    today() { simDays = daysNow(); },
+    setPlaying(p) { playing = p; sucio = true; },
+    today() { simDays = daysNow(); sucio = true; },
     date() { return new Date(J2000 + simDays * 86400000); },
-    setInset(x, y) { inset = { x, y }; applyOffset(); },
+    setInset(x, y) { inset = { x, y }; applyOffset(); sucio = true; },
     // La partida es null hasta la primera entrada a "La Tierra" (y si la escala falló)
     tierra: { get partida() { return partidaTierra; }, get fallo() { return LV.tierra ? !!LV.tierra.fallo : !puedeTierra; },
       setCapa(n, on) { if (LV.tierra && LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
