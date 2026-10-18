@@ -1465,7 +1465,8 @@ function crearEspacio() {
 
   // Trabajo que el primer cuadro no necesita (texturas procedimentales sin imagen, escalas lejanas): una tarea por vez,
   // cuando el navegador está libre, después del primer cuadro
-  const enReposo = typeof requestIdleCallback === "function" ? fn => requestIdleCallback(fn) : fn => setTimeout(fn, 30);
+  // (con plazo: en un teléfono ocupado el trabajo de fondo no queda esperando para siempre)
+  const enReposo = typeof requestIdleCallback === "function" ? fn => requestIdleCallback(fn, { timeout: 2000 }) : fn => setTimeout(fn, 30);
   const enCola = [];
   function seguirCola() {
     const fn = enCola.shift();
@@ -1849,8 +1850,9 @@ function crearEspacio() {
   const nivelDeObj = {};
   ["stars", "galaxy", "group"].forEach(lv => COSMOS[lv].forEach(o => { nivelDeObj[o.id] = lv; }));
   if (typeof HISTORIA !== "undefined") HISTORIA.continentes.forEach(c => { nivelDeObj[c.id] = "tierra"; });
+  // Construye la escala si falta y compila sus shaders ya, para que su primer cuadro no se trabe (R10)
   function escala(id) {
-    if (!LV[id] && CONSTRUIR[id]) { CONSTRUIR[id](); prepararEscala(id); }
+    if (!LV[id] && CONSTRUIR[id]) { CONSTRUIR[id](); prepararEscala(id); renderer.compile(LV[id].scene, camera); }
     return LV[id];
   }
 
@@ -1977,9 +1979,10 @@ function crearEspacio() {
     });
     if (L.oclusor) L.hits.push(L.oclusor);
   }
-  // Las escalas lejanas se arman en reposo, cada una en su tarea, y sus shaders se compilan ahí mismo
-  // para que el primer cuadro al entrar no se trabe
-  ["stars", "galaxy", "group"].forEach(id => enCola.push(() => { if (!LV[id]) { escala(id); renderer.compile(LV[id].scene, camera); } }));
+  // Las escalas lejanas y, al final, "La Tierra" con su partida se arman en reposo, cada una en su tarea (con sus shaders
+  // compilados); si se entra antes a una, se arma en ese momento. La partida no tiene semilla fija, así que crearla antes
+  // no cambia nada del juego.
+  ["stars", "galaxy", "group", "tierra"].forEach(id => enCola.push(() => escala(id)));
   let lvl = "solar", focusObj = null;
   // Si dos nombres se encimarían, gana el objeto enfocado y luego el más grande o brillante
   const rank = o => (focusObj === o ? 1e6 : 0) + (o.enter ? 100 : 0) + (o.deco ? -1 : (o.s || o.R || (o.near ? 0.5 : o.r ? 3 : 1)));
@@ -2242,7 +2245,7 @@ function crearEspacio() {
 
   // El muelle muestra los objetos de la escala activa
   function buildDock(lv) {
-    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : lv === "tierra" ? TIERRA : COSMOS[lv];
+    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : lv === "tierra" ? (Space.tierra.fallo ? [] : TIERRA) : COSMOS[lv];
     dock.replaceChildren(...list.map(b => {
       const btn = document.createElement("button");
       btn.className = "body-btn"; btn.type = "button"; btn.dataset.id = b.id;
