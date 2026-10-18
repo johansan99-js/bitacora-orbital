@@ -68,7 +68,8 @@ const Pueblo = (() => {
         k++;
       }
     }
-    const fria = i => Math.abs(lat[i]) >= 45 || bio[i] === TUNDRA || bio[i] === HIELO;   // como `donde.frio`
+    // Fría, como `donde.frio`: latitud de 45° o más (fijo por celda, se calcula una vez), tundra o hielo
+    const latFria = Uint8Array.from({ length: N }, (_, i) => Math.abs(lat[i]) >= 45 ? 1 : 0);
     const cultivable = i => (bio[i] === ESTEPA || bio[i] === BOSQUE || bio[i] === SELVA) && Math.abs(lat[i]) <= 58;
 
     // El catálogo, traducido una vez
@@ -99,7 +100,7 @@ const Pueblo = (() => {
     let totMax = 0, sedMax = 0, frioMax = 0, enfMax = 0, agriDesde = null;
     // Sequía: la capacidad de cada celda en su máximo desde la última sequía, y las sumas de ahora y de esos máximos sobre las
     // mismas celdas (tus celdas de este paso), así perder celdas no parece una sequía
-    const capMax = new Float64Array(N);
+    const capMax = new Float64Array(N), capAhora = new Float64Array(N);
     let cap = 0, capTope = 0;
 
     // Las sumas se llevan en variables locales (más rápido que las de afuera) y se guardan al final
@@ -115,28 +116,33 @@ const Pueblo = (() => {
         return;
       }
       let nM = 0, tot = 0, sed = 0, fr = 0, enf = 0;
-      // Solo las celdas habitadas (en el orden de `tierra`, así las sumas dan lo mismo que recorriéndola entera)
+      const minimo = P.minimo, establecida = P.establecida;
+      // Solo las celdas habitadas (en el orden de `tierra`, así las sumas dan lo mismo que recorriéndola entera). La herencia
+      // también se corta al llegar a `minimo`: solo se usa para saber si tu linaje se extinguió
       for (let k = 0; k < n; k++) {
         const i = hab[k], p = pob[i];
         if (p <= 0) continue;
-        her += linaje[i] * p;
+        if (her < minimo) her += linaje[i] * p;
         const t = tuyos[i];
         if (t <= 0) continue;
         tot += t;
         const b = bio[i];
         if (b === DESIERTO || b === ESTEPA) sed += t;
-        if (fria(i)) fr += t;
+        if (latFria[i] || b === TUNDRA || b === HIELO) fr += t;
         if (etapa[i] >= AGRICULTORES) enf += t;
         const r = region[i];
-        if (r >= 0) { pisadas[r] = 1; if (t >= P.establecida) llegadas[r] = 1; }
+        if (r >= 0) { pisadas[r] = 1; if (t >= establecida) llegadas[r] = 1; }
         if (t > 0.5 * p) mias[nM++] = i;
       }
       herencia = her; nMias = nM; total = tot; tSed = sed; tFrio = fr; tEnf = enf;
       cap = 0; capTope = 0;
-      if (disponible("sequia")) for (let h = 0; h < nMias; h++) {
-        const i = mias[h], k = motor.capacidad(i);
-        if (k > capMax[i]) capMax[i] = k;
-        cap += k; capTope += capMax[i];
+      if (nMias > 0 && disponible("sequia")) {
+        motor.capacidades(mias, nMias, capAhora);   // las de todas tus celdas en una llamada (lo mismo que motor.capacidad)
+        for (let h = 0; h < nMias; h++) {
+          const i = mias[h], k = capAhora[h];
+          if (k > capMax[i]) capMax[i] = k;
+          cap += k; capTope += capMax[i];
+        }
       }
     }
     const foto = () => ({ pueblo: pb.total(), herencia: pb.herencia() });

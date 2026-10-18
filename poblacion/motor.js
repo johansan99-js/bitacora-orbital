@@ -329,7 +329,8 @@ const Motor = (() => {
       const i = hab[h], p = pob[i];
       if (p <= 0) continue;
       const vi = innov[i], si = sr[i], K = capHab[i];   // la misma capacidad que al crecer
-      const x = -(exploracion + presion * Math.min(1, p / K)) * dt;
+      // (lo mismo que Math.min(1, p / K), sin dividir en las celdas llenas)
+      const x = -(exploracion + presion * (p >= K ? 1 : p / K)) * dt;
       if (x !== ultX) { ultX = x; ultE = Math.exp(x); }   // las celdas llenas repiten el mismo valor
       const sale = p * (1 - ultE);
       if (sale < minimo) continue;
@@ -375,7 +376,7 @@ const Motor = (() => {
         if (llegan[j] === 0) destinos[nDest++] = j;
         llegan[j] += v;
         llegaS[j] += v * si;
-        llegaL[j] += v * li;
+        if (li !== 0) llegaL[j] += v * li;   // (sumar 0 no cambia nada)
         if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(apta, vi, j); }
       }
     }
@@ -429,15 +430,19 @@ const Motor = (() => {
     const { P, pob, innov, sr, apta, arc, vecinas, pesos, pesosT, salen, salenT, llegan, llegaS, llegaT, llegaL, aporte, traen, destinos } = E;
     const { tuyos, linaje, mods } = E.pb, minimo = P.minimo, vi = innov[i], si = sr[i], li = linaje[i], evita = mods.evitaArcaicos;
     const t = Math.min(1, tuyos[i] / p), saleO = sale * (1 - t), saleT = Math.min(tuyos[i], sale * t * mods.migracion);
+    // Una parte que en total no llega a `minimo` no se va: podar quitaría todas sus vecinas y daría 0, así que se salta sin
+    // recorrerlas (el margen cubre el redondeo de sale · peso / suma, que con una sola vecina puede pasar de sale en un ulp).
+    // Sus pesos quedan sin usar: solo se leen si esa parte sale.
+    const casiMinimo = minimo * (1 - 1e-9);
     let sumaT = 0, wMinT = Infinity;
-    for (let k = 0; k < 8; k++) {
+    if (saleT >= casiMinimo) for (let k = 0; k < 8; k++) {
       pesosT[k] = 0;
-      if (pesos[k] <= 0 || saleT <= 0) continue;
+      if (pesos[k] <= 0) continue;
       const j = vecinas[i * 8 + k];
       if ((pob[j] <= 0 || tuyos[j] > 0.5 * pob[j]) && !(evita && arc[j] > 0)) { pesosT[k] = pesos[k]; sumaT += pesos[k]; if (pesos[k] < wMinT) wMinT = pesos[k]; }
     }
     // Cada parte por su lado: si no le queda adónde ir, se queda
-    let sumaO = suma > 0 ? (saleO * wMin / suma < minimo ? podar(pesos, saleO, suma, minimo) : suma) : 0;
+    let sumaO = suma > 0 && saleO >= casiMinimo ? (saleO * wMin / suma < minimo ? podar(pesos, saleO, suma, minimo) : suma) : 0;
     if (sumaT > 0 && saleT * wMinT / sumaT < minimo) sumaT = podar(pesosT, saleT, sumaT, minimo);
     const vaO = sumaO > 0 ? saleO : 0, vaT = sumaT > 0 ? saleT : 0;
     if (vaO + vaT <= 0) return nDest;
@@ -985,6 +990,8 @@ const Motor = (() => {
       alHito(fn) { E.oyentes.push(fn); },
       hitos: () => E.logros.slice(),
       capacidad: i => capacidad(E, i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES, sr[i]),
+      // Para tu pueblo: la capacidad (como `capacidad`) de las celdas lista[0], …, lista[n − 1], en out[0], …, out[n − 1]
+      capacidades(lista, n, out) { for (let h = 0; h < n; h++) { const i = lista[h]; out[h] = capacidad(E, i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES, sr[i]); } },
       celdaDe,
       // Solo lectura. `bioma` es el tipo de tierra según el clima de ahora; `area`, la superficie de cada celda en km²; `especie`, el
       // índice de historia.arcaicos (−1 sin arcaicos); `domestica`, el de historia.domesticables (−1 si no hay); `costa`, 1 en la costa
