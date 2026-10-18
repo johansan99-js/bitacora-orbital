@@ -61,7 +61,7 @@ test("el Nacimiento queda primero en el registro", () => {
   assert.equal(r0[0].despues, null);
   const d = hastaDecision(m, pb, 100);
   assert.equal(d.id, "frontera");
-  pb.elegir("esperar");
+  assert.equal(pb.elegir("esperar").causa, null);   // solo el cuello de botella tiene causa
   const r1 = pb.registro();
   assert.equal(r1.length, 2);
   assert.equal(r1[0].momento, "nacimiento");
@@ -228,6 +228,7 @@ test("cuello de botella con causa sed da resistentes_sed", () => {
   const d = hastaDecision(m, pb, 10);
   assert.equal(d.id, "cuello");
   const r = pb.elegir("seguir");
+  assert.equal(r.causa, "sed");
   assert.equal(r.rasgo.id, "resistentes_sed");
   assert.equal(r.rasgo.nombre, "Resistentes a la sed");
   assert.deepEqual(pb.rasgos().map(x => x.id), ["resistentes_sed"]);
@@ -240,7 +241,9 @@ test("cuello de botella sin causa clara no da rasgo", () => {
   const { m, pb } = partida(mundoDePrueba(["000", "050", "000"], { lonOeste: -3 }), h, ["cuello"]);
   m.perderPueblo(0.8);
   assert.equal(hastaDecision(m, pb, 10).id, "cuello");
-  assert.equal(pb.elegir("seguir").rasgo, null);
+  const r = pb.elegir("seguir");
+  assert.equal(r.rasgo, null);
+  assert.equal(r.causa, null);
   assert.deepEqual(pb.rasgos(), []);
 });
 

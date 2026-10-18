@@ -293,7 +293,7 @@ const Pueblo = (() => {
       if (motor.terminado()) { pendiente = null; throw new Error("La partida ya terminó"); }
       const m = pendiente.momento, o = m.opciones.find(x => x.id === opcionId);
       if (!o) throw new Error(`La decisión "${m.id}" no tiene la opción "${opcionId}"`);
-      const año = motor.año(), e = efectos.get(o), antes = foto(), causa = pendiente.causa;
+      const año = motor.año(), e = efectos.get(o), antes = foto(), causa = pendiente.causa ?? null;
       cerrarRegistro(antes);
       let rasgo = null, cambio = false;
       if (e.perder) motor.perderPueblo(e.perder);

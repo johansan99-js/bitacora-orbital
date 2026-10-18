@@ -299,7 +299,8 @@ const PanelTierra = (() => {
         // Una decisión sin elegir ya no se puede tomar: la tarjeta se descarta (la de un estado o una ya elegida se queda)
         // y se muestra lo que esperaba detrás (un cambio de estado o un hito del mismo paso), antes de abrir la Bitácora
         if (actual && actual.decision && !actual.resultado) { actual = null; ocultar(tarjeta); mostrarAvisos(); }
-        if (visible) { pintarBitacora(); abrirModal("bitacora"); }
+        // (se abre sola: nadie la abrió, así que al cerrarla el foco va a ▶ y no a quien abrió una Bitácora anterior)
+        if (visible) { abridorBitacora = play; pintarBitacora(); abrirModal("bitacora"); }
       }
     });
     setInterval(pintarTarjeta, 250);
