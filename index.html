@@ -6,7 +6,9 @@
 <title>Bitácora Orbital</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!-- Las fuentes no frenan el primer pintado: la hoja se aplica al llegar (mientras, las de respaldo de --f-*) -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap"></noscript>
 <style>
 /* Layout: lienzo 3D a pantalla completa; marca arriba a la izquierda, controles arriba a la derecha,
    muelle de planetas abajo y ficha del astro a la derecha (hoja inferior en móvil). Diseño oscuro por elección. */
@@ -228,6 +230,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 
 /* Escalas del viaje: escalera vertical a la izquierda */
 #fade { position: fixed; inset: 0; background: var(--void); opacity: 0; pointer-events: none; }
+/* Mientras se arma la escena 3D (se quita en el primer cuadro) */
+#cargando {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none;
+  font-size: 14px; letter-spacing: 0.06em; color: var(--muted); animation: latido 1.6s ease-in-out infinite alternate;
+}
+@keyframes latido { from { opacity: 0.45; } to { opacity: 1; } }
 .zoom {
   position: fixed; left: calc(14px + env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%);
   display: grid; gap: 2px; padding: 8px 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(8px);
@@ -399,6 +407,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 }
 @media (prefers-reduced-motion: reduce) {
   .lightbar i, .q-progress i, .hint { transition: none; }
+  #cargando { animation: none; }
+}
+/* Pantallas táctiles: sin desenfoque detrás de los paneles. En un teléfono el desenfoque se recalcula en cada cuadro del
+   lienzo y es de lo más caro de la página; a cambio, el fondo es un poco más opaco. */
+@media (pointer: coarse) {
+  :root { --panel: rgba(9, 13, 24, 0.9); }
+  .chip, .bodies, .clock, .sheet-in, .zoom, .t-card { backdrop-filter: none; }
 }
 </style>
 <div id="app">
@@ -406,6 +421,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   <canvas id="scene" aria-label="Vista 3D del sistema solar. Arrastra para girar, rueda o pellizco para acercar."></canvas>
   <div id="labels"></div>
   <div id="fade" aria-hidden="true"></div>
+  <div id="cargando" role="status">Preparando el universo…</div>
 
   <nav class="zoom" id="zoom" aria-label="Escala del viaje"></nav>
 
@@ -609,7 +625,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 const Aviso = (() => {
   const $ = id => document.getElementById(id);
   let listo = false;
+  // El indicador de carga se va con el primer cuadro de la vista 3D, o cuando un aviso explica por qué no hay vista
+  function cargado() { $("cargando").hidden = true; }
   function mostrar(texto, { recargar = false } = {}) {
+    cargado();
     $("aviso-app").hidden = false;   // primero visible y después el texto, para que los lectores de pantalla lo anuncien
     $("aviso-texto").textContent = texto;
     $("aviso-recargar").hidden = !recargar;
@@ -621,7 +640,7 @@ const Aviso = (() => {
   addEventListener("load", () => {
     if (!listo) mostrar("La página no terminó de cargar. Revisa tu conexión y vuelve a intentarlo.", { recargar: true });
   });
-  return { mostrar, ocultar, listo() { listo = true; } };
+  return { mostrar, ocultar, cargado, listo() { listo = true; } };
 })();
 </script>
 <script>
@@ -1253,7 +1272,7 @@ const Tex = (() => {
   function paint(w, h, fn) {
     const c = canvas(w, h), ctx = c.getContext("2d"), img = ctx.createImageData(w, h), p = img.data;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const col = fn(x / w, y / h), k = (y * w + x) * 4;
+      const col = fn(x / w, y / h, x, y), k = (y * w + x) * 4;
       p[k] = col[0]; p[k + 1] = col[1]; p[k + 2] = col[2]; p[k + 3] = col[3] == null ? 255 : col[3];
     }
     ctx.putImageData(img, 0, 0);
@@ -1287,15 +1306,28 @@ const Tex = (() => {
     const f = makeNoise(seed), cols = o.c.map(hex);
     const cr = []; const r = rng(seed + 7);
     if (o.craters) for (let i = 0; i < 90; i++) cr.push([r(), 0.1 + r() * 0.8, 0.004 + r() * r() * 0.03]);
-    return paint(512, 256, (u, v) => {
+    // Color de fondo de cada píxel y, encima, los cráteres en el mismo orden de siempre, pero cada uno solo dentro de su caja:
+    // el mismo resultado sin probar los 90 cráteres en cada píxel
+    const W = 512, H = 256, fondo = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u = x / W, v = y / H;
       let n = f(u * 10, v * 5, 10, 6);
       if (o.maria) { const m = f(u * 3 + 11, v * 1.5, 3, 3); if (m > 0.55) n -= (m - 0.55) * 1.6; }
-      let col = ramp(cols, n);
-      for (const c of cr) {
+      fondo.push(ramp(cols, n));
+    }
+    for (const c of cr) {
+      // d < 1 pide |v − c[1]| < c[2] y una distancia horizontal (con la vuelta en x) menor que c[2] / 2
+      const y0 = Math.max(0, Math.floor((c[1] - c[2]) * H)), y1 = Math.min(H - 1, Math.ceil((c[1] + c[2]) * H));
+      const x0 = Math.floor((c[0] - c[2] / 2) * W), x1 = Math.ceil((c[0] + c[2] / 2) * W);
+      for (let y = y0; y <= y1; y++) for (let xx = x0; xx <= x1; xx++) {
+        const x = ((xx % W) + W) % W, u = x / W, v = y / H, k = y * W + x;
         const dx = Math.min(Math.abs(u - c[0]), 1 - Math.abs(u - c[0])) * 2, dy = v - c[1];
         const d = Math.sqrt(dx * dx + dy * dy) / c[2];
-        if (d < 1) col = mix(col, d > 0.75 ? cols[2] : cols[1], d > 0.75 ? 0.5 : 0.35);
+        if (d < 1) fondo[k] = mix(fondo[k], d > 0.75 ? cols[2] : cols[1], d > 0.75 ? 0.5 : 0.35);
       }
+    }
+    return paint(W, H, (u, v, x, y) => {
+      let col = fondo[y * W + x];
       if (o.caps && (v < 0.07 || v > 0.93)) col = mix(col, [245, 240, 235], 0.9);
       if (o.lines) { // grietas del hielo: crestas finas del ruido
         const l = Math.abs(f(u * 9 + 40, v * 4.5, 9, 4) - 0.5);
@@ -1403,12 +1435,16 @@ function espacioNulo() {
     apuntar() {}
   };
   document.getElementById("hint").hidden = true;
+  Aviso.cargado();
   return api;
 }
 function crearEspacio() {
   const canvas = document.getElementById("scene");
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  // En pantallas táctiles (teléfonos y tabletas) la resolución del lienzo se limita a 1,5 píxeles por punto: con 2 o más,
+  // cada cuadro rellena casi el doble de píxeles y la diferencia apenas se ve en una pantalla pequeña
+  const tactil = matchMedia("(pointer: coarse)").matches;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tactil ? 1.5 : 2));
   renderer.setClearColor(0x04060c, 1);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 8000);
@@ -1417,6 +1453,69 @@ function crearEspacio() {
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.minDistance = 2; controls.maxDistance = 700; controls.enablePan = false;
   controls.rotateSpeed = 0.6; controls.zoomSpeed = 0.9;
+  // `sucio`: algo cambió y hay que volver a dibujar la escena (ver dibujar)
+  let sucio = true, ultimoDibujo = 0;
+  controls.addEventListener("change", () => { sucio = true; });
+
+  /* Texturas reales (mapas de NASA y Planet Pixel Emporium). Se piden antes de construir nada, así bajan mientras el hilo
+     principal arma la escena. Cada imagen se pide una sola vez: la Tierra del sistema solar y la de "La Tierra" comparten
+     las suyas. Las texturas procedimentales quedan solo como respaldo si una imagen no llega. */
+  // Las imágenes se decodifican fuera del hilo principal con createImageBitmap (R6), ya volteadas: la textura lleva
+  // flipY = false porque WebGL no voltea un ImageBitmap. Safari antes del 17 y Firefox antes del 98 no aceptan bien las
+  // opciones de createImageBitmap; ahí se usa el cargador de siempre (<img>).
+  // Las más pesadas tienen una copia WebP (herramientas/publicar_webp.py); si el navegador no la abre, se pide el JPG.
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
+  const usaBitmap = (() => {
+    if (typeof createImageBitmap !== "function" || typeof fetch !== "function") return false;
+    const ua = navigator.userAgent, ff = ua.match(/Firefox\/(\d+)/);
+    if (ff) return +ff[1] >= 98;
+    if (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg|CriOS|FxiOS|Android/.test(ua) || /iP(hone|ad|od)/.test(ua)) {
+      const v = ua.match(/Version\/(\d+)/) || ua.match(/ OS (\d+)_/);
+      return !!v && +v[1] >= 17;
+    }
+    return true;
+  })();
+  const cargadorBitmap = usaBitmap ? new THREE.ImageBitmapLoader().setOptions({ imageOrientation: "flipY", premultiplyAlpha: "none" }) : null;
+  const cargadorImg = new THREE.TextureLoader();
+  const WEBP = new Set(["earth_day.jpg", "earth_night.jpg", "earth_spec.jpg", "earth_clouds.jpg", "jupiter.jpg", "mars.jpg", "pluto.jpg", "pluto_bump.jpg", "sun.jpg"]);
+  function cargarCon(cargador, archivo) {
+    return new Promise(ok => cargador.load(`tex/${archivo}`, img => {
+      const t = img.isTexture ? img : new THREE.Texture(img);
+      if (!img.isTexture) { t.flipY = false; t.needsUpdate = true; }
+      t.format = /\.png$/.test(archivo) ? THREE.RGBAFormat : THREE.RGBFormat;   // como TextureLoader: sin alfa para JPG y WebP opacos
+      t.anisotropy = Math.min(8, maxAniso);
+      ok(t);
+    }, undefined, () => ok(null)));
+  }
+  // Si createImageBitmap falla con un archivo (un navegador que no lo soporta bien aunque diga que sí), se prueba una
+  // vez con <img> antes de rendirse
+  const cargarImagen = archivo => cargadorBitmap
+    ? cargarCon(cargadorBitmap, archivo).then(t => t || cargarCon(cargadorImg, archivo))
+    : cargarCon(cargadorImg, archivo);
+  const pedidas = new Map();
+  function loadTex(name) {
+    if (!pedidas.has(name)) pedidas.set(name, WEBP.has(name) ? cargarImagen(name.replace(/\.jpg$/, ".webp")).then(t => t || cargarImagen(name)) : cargarImagen(name));
+    return pedidas.get(name);
+  }
+  const REAL = {
+    sol: { map: "sun.jpg" }, mercurio: { map: "mercury.jpg", bump: "mercury_bump.jpg" }, luna: { map: "moon.jpg" },
+    marte: { map: "mars.jpg", bump: "mars_bump.jpg" }, jupiter: { map: "jupiter.jpg" }, saturno: { map: "saturn.jpg" },
+    urano: { map: "uranus.jpg" }, neptuno: { map: "neptune.jpg" }, pluton: { map: "pluto.jpg", bump: "pluto_bump.jpg" }
+  };
+  const TEX_TIERRA = ["earth_day.jpg", "earth_night.jpg", "earth_spec.jpg", "earth_clouds.jpg"];
+  [...TEX_TIERRA, ...Object.values(REAL).flatMap(r => r.bump ? [r.map, r.bump] : [r.map]), "saturn_ring.png"].forEach(loadTex);
+
+  // Trabajo que el primer cuadro no necesita (texturas procedimentales sin imagen, escalas lejanas): una tarea por vez,
+  // cuando el navegador está libre, después del primer cuadro
+  // (con plazo: en un teléfono ocupado el trabajo de fondo no queda esperando para siempre)
+  const enReposo = typeof requestIdleCallback === "function" ? fn => requestIdleCallback(fn, { timeout: 2000 }) : fn => setTimeout(fn, 30);
+  const enCola = [];
+  function seguirCola() {
+    const fn = enCola.shift();
+    if (!fn) return;
+    try { fn(); } catch (e) { console.error("Falló una tarea de fondo de la vista 3D:", e); }
+    if (enCola.length) enReposo(seguirCola);
+  }
 
   // Longitud media en J2000 (grados) y avance por siglo juliano: posiciones aproximadas reales
   const ORBIT = {
@@ -1431,6 +1530,8 @@ function crearEspacio() {
   let simDays = daysNow();
 
   const round = new THREE.CanvasTexture(Tex.glow("rgba(255,255,255,1)", "rgba(255,255,255,0.6)"));
+  const blanco = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  blanco.needsUpdate = true;
 
   // Estrellas de fondo y banda de la Vía Láctea
   function starField(count, rMin, rMax, size, band) {
@@ -1486,10 +1587,10 @@ function crearEspacio() {
     const holder = new THREE.Object3D(), tilt = new THREE.Object3D();
     tilt.rotation.z = THREE.MathUtils.degToRad(b.tilt);
     holder.add(tilt);
-    const map = new THREE.CanvasTexture(Tex.forBody(b, i));
-    map.anisotropy = 4;
+    // Hasta que llega su textura (la imagen real o, si no tiene, la procedimental en reposo) el astro se ve de su color.
+    // Ya lleva un mapa (uno blanco de 1 píxel) para que cambiarlo por el de verdad no obligue a compilar otro shader.
     const seg = b.r > 2 ? 96 : 64;
-    const mat = b.id === "sol" ? new THREE.MeshBasicMaterial({ map }) : new THREE.MeshStandardMaterial({ map, roughness: 0.92, metalness: 0 });
+    const mat = b.id === "sol" ? new THREE.MeshBasicMaterial({ map: blanco, color: b.color }) : new THREE.MeshStandardMaterial({ map: blanco, color: b.color, roughness: 0.92, metalness: 0 });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(b.r, seg, seg / 2), mat);
     tilt.add(mesh);
     // Los gigantes con lunas cercanas usan un área de toque más ajustada para no tapar a sus lunas
@@ -1504,7 +1605,8 @@ function crearEspacio() {
       g2.scale.set(90, 90, 1); holder.add(g2);
     }
     if (b.id === "tierra") {
-      const cl = new THREE.Mesh(new THREE.SphereGeometry(b.r * 1.015, 64, 32), new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(Tex.clouds(77)), transparent: true, depthWrite: false }));
+      const cl = new THREE.Mesh(new THREE.SphereGeometry(b.r * 1.015, 64, 32), new THREE.MeshStandardMaterial({ transparent: true, depthWrite: false }));
+      cl.visible = false;   // hasta que tenga textura
       tilt.add(cl); b._clouds = cl;
     }
     const atmo = { tierra: 0x5fa8ff, venus: 0xffd99a, urano: 0x9ff3ff, neptuno: 0x5f8dff, titan: 0xffb04a }[b.id];
@@ -1513,7 +1615,8 @@ function crearEspacio() {
       const inner = b.r * 1.25, outer = b.r * 2.35, rg = new THREE.RingGeometry(inner, outer, 160, 1);
       const p = rg.attributes.position, uv = rg.attributes.uv, v = new THREE.Vector3();
       for (let k = 0; k < p.count; k++) { v.fromBufferAttribute(p, k); uv.setXY(k, (v.length() - inner) / (outer - inner), 0.5); }
-      const ring = new THREE.Mesh(rg, new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(Tex.rings()), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+      const ring = new THREE.Mesh(rg, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, transparent: true, depthWrite: false }));
+      ring.visible = false;   // hasta que tenga textura
       ring.rotation.x = -Math.PI / 2; tilt.add(ring); b._ring = ring;
     }
 
@@ -1562,24 +1665,35 @@ function crearEspacio() {
   });
   const constById = Object.fromEntries(consts.map(c => [c.id, c]));
 
-  /* Texturas reales (mapas de NASA y Planet Pixel Emporium). Se cargan después de las procedimentales,
-     que quedan como respaldo si una imagen no llega. */
-  const loader = new THREE.TextureLoader();
-  const maxAniso = renderer.capabilities.getMaxAnisotropy();
-  const loadTex = name => new Promise(ok => loader.load(`tex/${name}`, t => { t.anisotropy = Math.min(8, maxAniso); ok(t); }, undefined, () => ok(null)));
-  const REAL = {
-    sol: { map: "sun.jpg" }, mercurio: { map: "mercury.jpg", bump: "mercury_bump.jpg" }, luna: { map: "moon.jpg" },
-    marte: { map: "mars.jpg", bump: "mars_bump.jpg" }, jupiter: { map: "jupiter.jpg" }, saturno: { map: "saturn.jpg" },
-    urano: { map: "uranus.jpg" }, neptuno: { map: "neptune.jpg" }, pluton: { map: "pluto.jpg", bump: "pluto_bump.jpg" }
-  };
+  // Textura procedimental de un astro (la de siempre, con la misma semilla): para los que no tienen imagen, en reposo,
+  // y para los que la tienen, solo si la imagen no llegó
+  const procedurales = new Map();
+  function texturaProcedural(b) {
+    if (!procedurales.has(b.id)) {
+      const t = new THREE.CanvasTexture(Tex.forBody(b, BODIES.indexOf(b)));
+      t.anisotropy = 4; procedurales.set(b.id, t);
+    }
+    return procedurales.get(b.id);
+  }
+  // Cada imagen que llega se aplica en su propio cuadro (ver dibujar): su subida a la GPU y el shader nuevo que pida
+  // no se juntan con los de las demás en un único cuadro largo
+  const porAplicar = [];
+  const alLlegar = (promesa, fn) => promesa.then(t => { porAplicar.push(() => fn(t)); });
+  function ponerMapa(b, t) { const m = b.mesh.material; m.map = t; m.color.set(0xffffff); m.needsUpdate = true; sucio = true; }
+  bodies.filter(b => !REAL[b.id] && b.id !== "tierra").forEach(b => enCola.push(() => ponerMapa(b, texturaProcedural(b))));
   Object.entries(REAL).forEach(([id, r]) => {
-    const m = byId[id].mesh.material;
-    loadTex(r.map).then(t => { if (t) { m.map = t; m.needsUpdate = true; } });
-    if (r.bump) loadTex(r.bump).then(t => { if (t) { m.bumpMap = t; m.bumpScale = 0.012; m.needsUpdate = true; } });
+    const b = byId[id], m = b.mesh.material;
+    alLlegar(loadTex(r.map), t => ponerMapa(b, t || texturaProcedural(b)));
+    if (r.bump) alLlegar(loadTex(r.bump), t => { if (t) { m.bumpMap = t; m.bumpScale = 0.012; m.needsUpdate = true; } });
   });
+  function nubesProcedurales() {
+    const cl = byId.tierra._clouds;
+    cl.material.map = new THREE.CanvasTexture(Tex.clouds(77)); cl.material.needsUpdate = true; cl.visible = true;
+  }
   // Tierra: día iluminado, luces de ciudades en el lado nocturno y reflejo del Sol en los océanos
-  Promise.all(["earth_day.jpg", "earth_night.jpg", "earth_spec.jpg", "earth_clouds.jpg"].map(loadTex)).then(([day, night, spec, clouds]) => {
-    if (!day || !night || !spec) return;
+  alLlegar(Promise.all(TEX_TIERRA.map(loadTex)), ([day, night, spec, clouds]) => {
+    if (!day || !night || !spec) { ponerMapa(byId.tierra, texturaProcedural(byId.tierra)); nubesProcedurales(); return; }
+    byId.tierra.mesh.material.dispose();   // el material provisional (su mapa blanco es compartido y se queda)
     byId.tierra.mesh.material = new THREE.ShaderMaterial({
       uniforms: { dayMap: { value: day }, nightMap: { value: night }, specMap: { value: spec } },
       vertexShader: `varying vec2 vUv; varying vec3 vN; varying vec3 vWp;
@@ -1601,12 +1715,15 @@ function crearEspacio() {
     if (clouds) {
       const cm = byId.tierra._clouds.material;
       cm.map = null; cm.alphaMap = clouds; cm.color.set(0xffffff); cm.opacity = 0.95; cm.needsUpdate = true;
-    }
+      byId.tierra._clouds.visible = true;
+    } else nubesProcedurales();
   });
   // Anillos de Saturno: textura real y la sombra del planeta calculada en cada punto del anillo
-  loadTex("saturn_ring.png").then(t => {
-    if (!t) return;
+  alLlegar(loadTex("saturn_ring.png"), t => {
     const sat = byId.saturno;
+    sat._ring.visible = true;
+    if (!t) { sat._ring.material.map = new THREE.CanvasTexture(Tex.rings()); sat._ring.material.needsUpdate = true; return; }
+    sat._ring.material.dispose();
     sat._ring.material = new THREE.ShaderMaterial({
       uniforms: { map: { value: t }, pc: { value: sat.world }, pr: { value: sat.r } },
       vertexShader: `varying vec2 vUv; varying vec3 vWp;
@@ -1758,6 +1875,27 @@ function crearEspacio() {
     const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(color), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity }));
     m.scale.set(s, s, 1); return m;
   };
+  // Muchos brillos en una sola llamada de dibujo (R11): cuadrados que siempre miran a la cámara, igual que un Sprite
+  // (tamaño en unidades del mundo, color por la textura del brillo, suma aditiva). lista: [posición, tamaño, color]
+  function brillos(lista) {
+    const m = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+      uniforms: { mapa: { value: glowTex } },
+      vertexShader: `varying vec2 vUv; varying vec3 vTinte;
+        void main() {
+          vUv = uv; vTinte = instanceColor;
+          vec4 mv = modelViewMatrix * vec4(instanceMatrix[3].xyz, 1.0);
+          mv.xy += position.xy * length(instanceMatrix[0].xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform sampler2D mapa; varying vec2 vUv; varying vec3 vTinte;
+        void main() { vec4 t = texture2D(mapa, vUv); gl_FragColor = vec4(vTinte * t.rgb, t.a); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+    }), lista.length);
+    const mt = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Vector3();
+    lista.forEach(([pos, s, color], k) => { m.setMatrixAt(k, mt.compose(pos, q, e.set(s, s, s))); m.setColorAt(k, new THREE.Color(color)); });
+    m.frustumCulled = false;   // la caja de la geometría es la de un solo cuadrado en el origen
+    return m;
+  }
   const ringLine = (radius, color, opacity, target, y = 0) => {
     const pts = [];
     for (let i = 0; i <= 128; i++) { const a = (i / 128) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * radius, y, Math.sin(a) * radius)); }
@@ -1771,19 +1909,30 @@ function crearEspacio() {
   const ORDER = SCALES.map(s => s.id);
   const objById = {};
   const aspectK = () => Math.min(2.6, Math.max(1, 1.25 / camera.aspect));
+  // Las demás escalas se construyen la primera vez que hacen falta (las lejanas, antes, en reposo; "La Tierra", al entrar).
+  // Hasta entonces, cada objeto con ficha se ubica en su escala por los datos.
+  const CONSTRUIR = {};
+  const nivelDeObj = {};
+  ["stars", "galaxy", "group"].forEach(lv => COSMOS[lv].forEach(o => { nivelDeObj[o.id] = lv; }));
+  if (typeof HISTORIA !== "undefined") HISTORIA.continentes.forEach(c => { nivelDeObj[c.id] = "tierra"; });
+  // Construye la escala si falta y compila sus shaders ya, para que su primer cuadro no se trabe (R10)
+  function escala(id) {
+    if (!LV[id] && CONSTRUIR[id]) { CONSTRUIR[id](); prepararEscala(id); renderer.compile(LV[id].scene, camera); }
+    return LV[id];
+  }
 
   // Estrellas vecinas: 1 unidad = 1 año luz, mismo marco eclíptico que la escena solar
-  {
+  CONSTRUIR.stars = () => {
     const sc = new THREE.Scene(); backdrop(sc, 7000, 700, 1100, 1.5, 1); backdrop(sc, 500, 700, 1100, 2.8, 1);
     sc.add(new THREE.AmbientLight(0xffffff, 1));
-    const stems = [];
+    const stems = [], luz = [];
     COSMOS.stars.forEach(o => {
       o.world = o.dist ? skyDir(o.ra, o.dec).multiplyScalar(o.dist) : new THREE.Vector3();
       o.r = o.s * 0.25;
-      const sp = sprite(o.color, o.s); sp.position.copy(o.world); sc.add(sp);
-      const core = sprite("#ffffff", o.s * 0.28); core.position.copy(o.world); sc.add(core);
+      luz.push([o.world, o.s, o.color], [o.world, o.s * 0.28, "#ffffff"]);   // el brillo de su color y el núcleo blanco
       if (Math.abs(o.world.y) > 0.3) stems.push(o.world.clone(), new THREE.Vector3(o.world.x, 0, o.world.z));
     });
+    sc.add(brillos(luz));
     sc.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stems), new THREE.LineBasicMaterial({ color: 0x8fb8ff, transparent: true, opacity: 0.22, depthWrite: false })));
     const deco = [];
     [10, 20, 30, 40].forEach(r => {
@@ -1792,10 +1941,10 @@ function crearEspacio() {
     });
     LV.stars = { scene: sc, minD: 1, maxD: 260, tgt: new THREE.Vector3(), over: () => new THREE.Vector3(0, 48, 95).multiplyScalar(aspectK()),
       anchor: new THREE.Vector3(), near: 0.7, objs: [...COSMOS.stars, ...deco] };
-  }
+  };
 
   // Vía Láctea: 1 unidad = 1.000 años luz; centro en el origen, el Sol en (−26, 0, 0)
-  {
+  CONSTRUIR.galaxy = () => {
     const sc = new THREE.Scene(); backdrop(sc, 2500, 900, 1400, 1.4, 0.55);
     const mw = spiral({ R: 50, n: 110000, size: 2, atten: false, spur: true }); sc.add(mw);
     const sun = new THREE.Vector3(-26, 0, 0);
@@ -1812,10 +1961,10 @@ function crearEspacio() {
     const core = sprite("#fff1d0", 7, 0.45); sc.add(core);
     LV.galaxy = { scene: sc, minD: 2, maxD: 320, tgt: new THREE.Vector3(), over: () => new THREE.Vector3(0, 100, 48).multiplyScalar(aspectK()),
       anchor: sun, near: 1.6, objs: COSMOS.galaxy, spin: mw };
-  }
+  };
 
   // Grupo Local: 1 unidad = 10.000 años luz; la Vía Láctea en el origen
-  {
+  CONSTRUIR.group = () => {
     const sc = new THREE.Scene(); backdrop(sc, 3500, 1800, 2800, 1.6, 0.6);
     const orient = (obj, pos, incl) => {
       if (!pos.lengthSq()) return;
@@ -1847,27 +1996,35 @@ function crearEspacio() {
     const perp = and.clone().cross(new THREE.Vector3(0, 1, 0)).normalize();
     LV.group = { scene: sc, minD: 2, maxD: 1300, tgt: mid.clone(), over: () => mid.clone().addScaledVector(perp, 270 * aspectK()).add(new THREE.Vector3(0, 110, 0)),
       anchor: new THREE.Vector3(), near: 9, objs: [...COSMOS.group, ...deco] };
-  }
+  };
 
-  // La Tierra habitada (poblacion/*.js). Si algo falla, la escala queda vacía con un aviso y el resto sigue igual.
+  // La Tierra habitada (poblacion/*.js), con su partida: se crean la primera vez que se entra a la escala.
+  // Si algo falla, la escala queda vacía con un aviso y el resto sigue igual.
   let partidaTierra = null;
-  try {
-    if (typeof VistaTierra === "undefined") throw new Error("No se cargó poblacion/vista.js");
-    partidaTierra = Partida.crear(MUNDO, HISTORIA);
-    LV.tierra = VistaTierra.crear({
-      partida: partidaTierra, historia: HISTORIA, cargarTextura: loadTex, punto: round, aspectK, reduceMotion,
-      respaldo: byId.tierra.mesh.material.map,
-      fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
-    });
-  } catch (e) {
-    console.error("La Tierra habitada no está disponible:", e);
-    partidaTierra = null;
-    LV.tierra = { scene: new THREE.Scene(), minD: 12, maxD: 60, tgt: new THREE.Vector3(), anchor: new THREE.Vector3(), near: 26,
-      over: () => new THREE.Vector3(0, 9, 28), objs: [], fallo: true };
-  }
+  const puedeTierra = typeof VistaTierra !== "undefined" && typeof Partida !== "undefined" && typeof MUNDO !== "undefined" && typeof HISTORIA !== "undefined";
+  // Mientras llega earth_day.jpg el globo usa el color del mar; si no llega, la textura procedimental de la Tierra
+  const mar = new THREE.DataTexture(new Uint8Array([31, 63, 107, 255]), 1, 1, THREE.RGBAFormat);
+  mar.needsUpdate = true;
+  CONSTRUIR.tierra = () => {
+    try {
+      if (typeof VistaTierra === "undefined") throw new Error("No se cargó poblacion/vista.js");
+      const partida = Partida.crear(MUNDO, HISTORIA);
+      LV.tierra = VistaTierra.crear({
+        partida, historia: HISTORIA, punto: round, aspectK, reduceMotion, respaldo: mar,
+        cargarTextura: name => loadTex(name).then(t => t || (name === "earth_day.jpg" ? texturaProcedural(byId.tierra) : null)),
+        fondo: sc => backdrop(sc, 2500, 900, 1400, 1.4, 0.55), pixelRatio: renderer.getPixelRatio()
+      });
+      partidaTierra = partida;
+    } catch (e) {
+      console.error("La Tierra habitada no está disponible:", e);
+      partidaTierra = null;
+      LV.tierra = { scene: new THREE.Scene(), minD: 12, maxD: 60, tgt: new THREE.Vector3(), anchor: new THREE.Vector3(), near: 26,
+        over: () => new THREE.Vector3(0, 9, 28), objs: [], fallo: true };
+    }
+  };
 
-  // Etiquetas y áreas de toque de las escalas cósmicas
-  ORDER.filter(id => id !== "solar").forEach(id => {
+  // Etiquetas y áreas de toque de una escala recién construida
+  function prepararEscala(id) {
     const L = LV[id];
     L.labels = document.createElement("div"); L.labels.hidden = true; labelsEl.appendChild(L.labels);
     L.hits = [];
@@ -1885,15 +2042,22 @@ function crearEspacio() {
       }
       L.labels.appendChild(t); o._tag = t;
     });
-  });
-  if (LV.tierra.oclusor) LV.tierra.hits.push(LV.tierra.oclusor);
+    // El globo tapa lo que está detrás: se prueba como esfera exacta, no contra sus 16.384 triángulos (R7)
+    if (L.oclusor) { L.oclusor.geometry.computeBoundingSphere(); L.esferaOclusora = L.oclusor.geometry.boundingSphere.clone(); }
+  }
+  // Las escalas lejanas y, al final, "La Tierra" con su partida se arman en reposo, cada una en su tarea (con sus shaders
+  // compilados); si se entra antes a una, se arma en ese momento. La partida no tiene semilla fija, así que crearla antes
+  // no cambia nada del juego.
+  ["stars", "galaxy", "group", "tierra"].forEach(id => enCola.push(() => escala(id)));
   let lvl = "solar", focusObj = null;
   // Si dos nombres se encimarían, gana el objeto enfocado y luego el más grande o brillante
   const rank = o => (focusObj === o ? 1e6 : 0) + (o.enter ? 100 : 0) + (o.deco ? -1 : (o.s || o.R || (o.near ? 0.5 : o.r ? 3 : 1)));
   function updateCosmosLabels(w, h) {
     const L = LV[lvl], tanHalf = Math.tan(D2R(camera.fov / 2)), boxes = [];
     const nearSun = lvl !== "galaxy" || camera.position.distanceTo(L.anchor) < 24;
-    [...L.objs].sort((a, b) => rank(b) - rank(a)).forEach(o => {
+    // El orden solo depende del objeto enfocado: se ordena de nuevo cuando cambia, no en cada cuadro
+    if (!L.orden || L.ordenFoco !== focusObj) { L.orden = [...L.objs].sort((a, b) => rank(b) - rank(a)); L.ordenFoco = focusObj; }
+    L.orden.forEach(o => {
       tmp.copy(o.world).project(camera);
       let off = tmp.z > 1 || Math.abs(tmp.x) > 1.15 || Math.abs(tmp.y) > 1.15 || (o.near && !nearSun)
         || (o.normal && o.world.dot(camera.position) < o.world.lengthSq() * 1.1);   // detrás del horizonte del globo
@@ -1916,11 +2080,12 @@ function crearEspacio() {
   // Cambio de escala: fundido rápido y la cámara sale desde el objeto de la escala anterior (o entra desde lejos)
   const fade = document.getElementById("fade");
   function setLevel(id, quiet) {
-    if (id === lvl || !LV[id]) return;
+    if (id === lvl || !escala(id)) return;
     const up = ORDER.indexOf(id) > ORDER.indexOf(lvl), L = LV[id];
-    lvl = id; focus = null; focusConst = null; focusObj = null; fly = null; controls.enabled = true;
+    lvl = id; focus = null; focusConst = null; focusObj = null; fly = null; controls.enabled = true; sucio = true;
+    if (id === "solar") place();   // fuera de su escala los astros no se mueven (ver dibujar)
     solarLabels.hidden = id !== "solar";
-    ORDER.forEach(k => { if (LV[k].labels) LV[k].labels.hidden = k !== id; });
+    ORDER.forEach(k => { if (LV[k] && LV[k].labels) LV[k].labels.hidden = k !== id; });
     controls.minDistance = L.minD; controls.maxDistance = L.maxD;
     const over = L.over();
     if (up) { controls.target.copy(L.anchor); camera.position.copy(L.anchor).add(new THREE.Vector3(0, L.near * 0.45, L.near)); }
@@ -1940,25 +2105,35 @@ function crearEspacio() {
     flyTo(() => o.world, () => end, 2.2);
   }
 
-  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-  function pick(e) {
-    const r = canvas.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  // Selección con el puntero. El rectángulo del lienzo se guarda en resize() (leerlo en cada evento puede forzar el
+  // cálculo del diseño a mitad de cuadro) y el paso del ratón se atiende a lo sumo una vez por cuadro, en dibujar().
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), golpe = new THREE.Vector3();
+  let rect = canvas.getBoundingClientRect(), puntero = null, cursor = "";
+  function pick(x, y) {
+    ndc.set(((x - rect.left) / rect.width) * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const h = ray.intersectObjects(LV[lvl].hits, false)[0];
-    return h ? h.object.userData.id : null;
+    const L = LV[lvl], h = ray.intersectObjects(L.hits, false)[0];
+    if (!h) return null;
+    if (L.esferaOclusora && ray.ray.intersectSphere(L.esferaOclusora, golpe) && golpe.distanceTo(ray.ray.origin) < h.distance) return null;
+    return h.object.userData.id;
+  }
+  function procesarPuntero() {
+    if (!puntero) return;
+    const c = pick(puntero[0], puntero[1]) ? "pointer" : "";
+    puntero = null;
+    if (c !== cursor) canvas.style.cursor = cursor = c;
   }
   let down = null;
   canvas.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
   canvas.addEventListener("pointerup", e => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
     down = null;
-    const id = pick(e);
+    const id = pick(e.clientX, e.clientY);
     if (id && api.onPick) api.onPick(id);
   });
   canvas.addEventListener("pointermove", e => {
     if (e.pointerType !== "mouse" || e.buttons) return;
-    canvas.style.cursor = pick(e) ? "pointer" : "";
+    puntero = [e.clientX, e.clientY];
   });
 
   let focus = null, focusConst = null, fly = null;
@@ -1986,9 +2161,9 @@ function crearEspacio() {
     flyTo(() => tgt, () => cam, 2.2);
   }
   function select(id) {
-    const lv = objById[id] ? objById[id].lv : "solar";
+    const lv = nivelDeObj[id] || "solar";
     if (lv !== lvl) setLevel(lv, true);
-    if (lv !== "solar") return selectObj(objById[id]);
+    if (lv !== "solar") return objById[id] && lvl === lv ? selectObj(objById[id]) : undefined;
     if (constById[id]) return selectConst(constById[id]);
     const b = byId[id]; if (!b) return;
     focus = b; focusConst = null;
@@ -2023,13 +2198,15 @@ function crearEspacio() {
   function resize() {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
     renderer.setSize(W, H, false);
+    rect = canvas.getBoundingClientRect();
     camera.aspect = W / H;
     applyOffset();
+    sucio = true;
   }
 
   // Se pide el cuadro siguiente antes de dibujar: un error nunca corta el bucle. El primer error sale en la consola y,
   // si sigue fallando cuadro tras cuadro (unos 2 s), se avisa una vez en la página en vez de inundar la consola.
-  let fallos = 0, fallosSeguidos = 0;
+  let fallos = 0, fallosSeguidos = 0, primerCuadro = true;
   function frame() {
     requestAnimationFrame(frame);
     try { dibujar(); fallosSeguidos = 0; }
@@ -2037,13 +2214,25 @@ function crearEspacio() {
       if (++fallos === 1) console.error("La vista 3D falló al dibujar un cuadro (los fallos siguientes no se repiten aquí):", e);
       if (++fallosSeguidos === 120) Aviso.mostrar("La vista 3D dejó de responder. Puedes seguir usando el cuestionario, las misiones y las fichas, o recargar la página.", { recargar: true });
     }
+    // Tras el primer cuadro empieza el trabajo de fondo
+    if (primerCuadro) { primerCuadro = false; Aviso.cargado(); enReposo(seguirCola); }
   }
+  // Dibujar solo cuando algo cambia (R4). Se dibuja en cada cuadro mientras hay movimiento: un vuelo de cámara, el
+  // arrastre o la inercia de los controles, el sistema solar con el tiempo corriendo, "La Tierra" (su partida y sus
+  // bandas siempre se mueven) o una textura que acaba de llegar. Una escala quieta no se vuelve a dibujar hasta que algo
+  // la ensucia (cambio de tamaño, órbitas, constelaciones...), con un cuadro de seguridad cada medio segundo.
+  // Con un modal abierto (cuestionario, misiones, Bitácora...) la escena queda quieta detrás: no se dibuja nada.
+  const modales = document.getElementsByClassName("modal");
+  const hayModal = () => { for (const m of modales) if (!m.hidden) return true; return false; };
   function dibujar() {
     const dt = Math.min(clock.getDelta(), 0.1), days = playing ? dt * SPEEDS[speedIdx][0] : 0;
     simDays += days;
     const solar = lvl === "solar";
     if (solar && focus) last.copy(focus.world);
-    place();
+    // Las posiciones de los astros solo hacen falta en su escala (setLevel las pone al día al volver a ella)
+    if (solar) place();
+    const aplicar = porAplicar.shift();
+    if (aplicar) { aplicar(); sucio = true; }
     if (playing) {
       bodies.forEach(b => { if (!b.parent) b.mesh.rotation.y += b.spin * dt; });
       byId.tierra._clouds.rotation.y += 0.03 * dt;
@@ -2067,7 +2256,13 @@ function crearEspacio() {
       try { LV[lvl].update(dt); }
       catch (e) { console.error(`La escala "${lvl}" falló y se desactivó:`, e); LV[lvl].update = null; LV[lvl].fallo = true; }
     }
-    controls.update();
+    const movida = controls.update();
+    procesarPuntero();
+    const ahora = performance.now();
+    const animada = fly || movida || (solar && playing) || lvl === "tierra";
+    // Con un modal no se dibuja salvo un vuelo de cámara (la entrada a La Tierra vuela detrás del selector de modo)
+    if (hayModal() ? !(sucio || fly) : !(animada || sucio || ahora - ultimoDibujo > 500)) return;
+    sucio = false; ultimoDibujo = ahora;
     renderer.render(LV[lvl].scene, camera);
     if (solar) updateLabels(W, H); else updateCosmosLabels(W, H);
   }
@@ -2085,6 +2280,7 @@ function crearEspacio() {
   });
   canvas.addEventListener("webglcontextrestored", () => {
     clearTimeout(esperaContexto); esperaContexto = null;
+    sucio = true;   // dibujar ya, aunque la escala esté quieta
     // Si el contexto volvió tarde y el aviso ya salió, se quita: la vista funciona otra vez
     if (avisoContexto) { avisoContexto = false; Aviso.ocultar(); }
   });
@@ -2093,15 +2289,17 @@ function crearEspacio() {
     onPick: null, onLevel: null, select, overview, resize,
     setLevel(id) { setLevel(id, false); },
     level: () => lvl,
-    setOrbits(on) { orbitLines.visible = on; bodies.forEach(b => { if (b.parent) b._orbit.visible = on; }); },
-    setConsts(on) { constGroup.visible = on; api.onConsts && api.onConsts(on); },
+    setOrbits(on) { orbitLines.visible = on; bodies.forEach(b => { if (b.parent) b._orbit.visible = on; }); sucio = true; },
+    setConsts(on) { constGroup.visible = on; sucio = true; api.onConsts && api.onConsts(on); },
     setSpeed(i) { speedIdx = i; return SPEEDS[i][1]; },
-    setPlaying(p) { playing = p; },
-    today() { simDays = daysNow(); },
+    setPlaying(p) { playing = p; sucio = true; },
+    today() { simDays = daysNow(); sucio = true; },
     date() { return new Date(J2000 + simDays * 86400000); },
-    setInset(x, y) { inset = { x, y }; applyOffset(); },
-    tierra: { partida: partidaTierra, get fallo() { return !!LV.tierra.fallo; }, setCapa(n, on) { if (LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
-      centroPueblo() { return LV.tierra.centroPueblo ? LV.tierra.centroPueblo() : null; } },
+    setInset(x, y) { inset = { x, y }; applyOffset(); sucio = true; },
+    // La partida es null hasta la primera entrada a "La Tierra" (y si la escala falló)
+    tierra: { get partida() { return partidaTierra; }, get fallo() { return LV.tierra ? !!LV.tierra.fallo : !puedeTierra; },
+      setCapa(n, on) { if (LV.tierra && LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
+      centroPueblo() { return LV.tierra && LV.tierra.centroPueblo ? LV.tierra.centroPueblo() : null; } },
     // Vuela sobre un punto del globo (vector unitario desde el centro de la Tierra)
     apuntar(n, dist = 24) {
       if (lvl !== "tierra") return;
@@ -2143,7 +2341,7 @@ function crearEspacio() {
 
   // El muelle muestra los objetos de la escala activa
   function buildDock(lv) {
-    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : lv === "tierra" ? TIERRA : COSMOS[lv];
+    const list = lv === "solar" ? BODIES.filter(b => b.dock !== false) : lv === "tierra" ? (Space.tierra.fallo ? [] : TIERRA) : COSMOS[lv];
     dock.replaceChildren(...list.map(b => {
       const btn = document.createElement("button");
       btn.className = "body-btn"; btn.type = "button"; btn.dataset.id = b.id;
@@ -2272,6 +2470,7 @@ function crearEspacio() {
   let panel = null, modoElegido = false;
   const SIN_PANEL = "No se pudo cargar el panel de La Tierra: no hay avisos ni partidas nuevas. Recarga la página para intentarlo de nuevo.";
   Space.onLevel = lv => {
+    if (lv === "tierra") prepararTierra();
     zoom.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", String(b.dataset.lv === lv)));
     buildDock(lv);
     if (current) markDock(current.id);
@@ -2309,7 +2508,8 @@ function crearEspacio() {
   Space.onConsts = on => { $("opt-const").setAttribute("aria-checked", String(on)); $("labels").classList.toggle("no-const", !on); };
 
   // Reloj: el del sistema solar o, en la escala "La Tierra", el de la partida de población
-  const speed = $("speed"), dateOut = $("date-out"), partida = Space.tierra.partida;
+  const speed = $("speed"), dateOut = $("date-out");
+  let partida = null;   // la de "La Tierra": existe desde la primera vez que se entra a esa escala (ver prepararTierra)
   const enTierra = () => !!partida && !Space.tierra.fallo && Space.level() === "tierra";
   const velocidad = { solar: 2, tierra: 2 };
   let playing = true;
@@ -2348,12 +2548,6 @@ function crearEspacio() {
     if (!enTierra()) return Space.today();
     if (panel) panel.elegirModo();
     else Aviso.mostrar(SIN_PANEL, { recargar: true });
-  });
-  if (partida) partida.alEvento(e => {
-    if (!enTierra()) return;
-    showPlaying(partida.reproduciendo());
-    // La ficha abierta de un continente se actualiza con cada hito, partida nueva o fin
-    if (e.tipo !== "pausa" && current && current.lv === "tierra" && !sheet.classList.contains("closed")) fill(current);
   });
   setInterval(tickDate, 200);
   // Si la escala "La Tierra" falla durante la partida, la interfaz se entera y muestra el aviso
@@ -2477,8 +2671,18 @@ function crearEspacio() {
   }
   $("btn-quiz").addEventListener("click", () => { openModal("quiz"); renderLevels(); });
 
-  // La Tierra habitada: tarjeta, avisos de hitos y Bitácora
-  if (partida && typeof PanelTierra !== "undefined") {
+  // La Tierra habitada: la vista crea la partida al entrar por primera vez a la escala, y entonces la interfaz se engancha
+  // a ella (reloj y ficha) y arma el panel: tarjeta, avisos de hitos y Bitácora
+  function prepararTierra() {
+    if (partida || !Space.tierra.partida) return;
+    partida = Space.tierra.partida;
+    partida.alEvento(e => {
+      if (!enTierra()) return;
+      showPlaying(partida.reproduciendo());
+      // La ficha abierta de un continente se actualiza con cada hito, partida nueva o fin
+      if (e.tipo !== "pausa" && current && current.lv === "tierra" && !sheet.classList.contains("closed")) fill(current);
+    });
+    if (typeof PanelTierra === "undefined") return;
     try { panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal,
       centroPueblo: () => Space.tierra.centroPueblo() }); }
     catch (e) { console.error("El panel de La Tierra no está disponible:", e); panel = null; }

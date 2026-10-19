@@ -203,8 +203,18 @@ const VistaTierra = (() => {
       añoCapas = añoGente = NaN;
       pintarCapas(); repartirBandas(); encenderLuces();
     });
+    // Un paso de la simulación puede costar más que un cuadro (sobre todo en un teléfono). Si este cuadro ya llegó tarde
+    // respecto del ritmo habitual de la pantalla, sus años se aplazan al cuadro siguiente en vez de sumar otro paso a un
+    // cuadro ya largo; nunca dos cuadros seguidos. Solo cambia cuándo se dan los pasos, no cuáles (ver Partida.aplazar).
+    let ritmo = 1 / 60, aplazado = false;
+    function avanzarPartida(dt) {
+      const tarde = dt > ritmo * 1.6 && !aplazado;
+      if (!tarde) ritmo += (dt - ritmo) * 0.1;
+      if (tarde) partida.aplazar(dt); else partida.paso(dt);
+      aplazado = tarde;
+    }
     function update(dt) {
-      partida.paso(dt);
+      avanzarPartida(dt);
       if (!reduceMotion) {
         angSol += dt * Math.PI * 2 / 60;
         sol.set(Math.cos(angSol), 0.25, Math.sin(angSol)).normalize();

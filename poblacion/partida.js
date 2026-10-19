@@ -59,9 +59,18 @@ const Partida = (() => {
       try { return avanzarCuadro(dt); }
       finally { enPaso = false; soltar(); }
     }
-    function avanzarCuadro(dt) {
+    // Suma a `debe` los años de dt segundos, sin atraso infinito si la máquina no da abasto
+    function acumular(dt) {
       const pedido = dt * añosPorSegundo();
-      debe = Math.min(debe + pedido, Math.max(pedido, 10 * motor.pasoMax()));   // sin atraso infinito si la máquina no da abasto
+      debe = Math.min(debe + pedido, Math.max(pedido, 10 * motor.pasoMax()));
+    }
+    // Un cuadro que ya llegó tarde puede aplazar su parte: los años se suman a `debe` y los pasos se dan en el cuadro
+    // siguiente. Como los pasos son siempre los mismos, solo cambia cuándo se dan, no la historia.
+    function aplazar(dt) {
+      if (jugando && !motor.terminado() && dt > 0) acumular(dt);
+    }
+    function avanzarCuadro(dt) {
+      acumular(dt);
       const t0 = reloj();
       let hecho = 0;
       // Al menos un paso si alcanza; después, solo mientras quede presupuesto de tiempo
@@ -94,6 +103,7 @@ const Partida = (() => {
       },
       nueva,
       paso,
+      aplazar,
       añosPorSegundo,
       reproduciendo: () => jugando,
       setReproduciendo(b) { jugando = !!b && !motor.terminado(); if (!jugando) debe = 0; emitir({ tipo: "pausa" }); return jugando; },

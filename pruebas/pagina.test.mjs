@@ -42,3 +42,18 @@ test("el despliegue publica vendor/ y pone la versión del commit", () => {
   assert.ok(guarda > lineas.indexOf(sed), "falta la guarda después del sed");
   assert.match(lineas[guarda + 1], /exit 1/);
 });
+
+test("las copias WebP que pide la página existen y los JPG originales siguen ahí", () => {
+  const conjunto = html.match(/const WEBP = new Set\(\[([^\]]*)\]\)/);
+  assert.ok(conjunto, "falta el conjunto WEBP en index.html");
+  const pagina = [...conjunto[1].matchAll(/"([\w.-]+\.jpg)"/g)].map(m => m[1]);
+  assert.ok(pagina.length > 0);
+  // La misma lista que genera herramientas/publicar_webp.py
+  const py = leer("herramientas/publicar_webp.py").toString("utf8").match(/ARCHIVOS = \[([^\]]*)\]/);
+  assert.deepEqual(pagina, [...py[1].matchAll(/"([\w.-]+\.jpg)"/g)].map(m => m[1]));
+  for (const jpg of pagina) {
+    assert.ok(existsSync(new URL(`tex/${jpg}`, raiz)), `falta el original tex/${jpg}`);
+    const webp = leer(`tex/${jpg.replace(/\.jpg$/, ".webp")}`);
+    assert.equal(webp.toString("latin1", 0, 4) + webp.toString("latin1", 8, 12), "RIFFWEBP", `${jpg}: la copia no es WebP`);
+  }
+});
