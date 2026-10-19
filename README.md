@@ -11,7 +11,7 @@ Explorador 3D del universo en español, hecho para aprender astronomía. Funcion
 - **10 constelaciones** en su posición real del cielo.
 - **Fichas** con datos, tiempo que tarda la luz y tu peso en cada mundo.
 - **Misiones espaciales** (de Sputnik a Dragonfly) y un **cuestionario** con 3 niveles.
-- **La Tierra habitada**: la humanidad nace hace 300.000 años en África y se extiende sola por el planeta, con glaciaciones, puentes de tierra, agricultura, ciudades e industria. Cada hito se compara con su fecha real y su fuente.
+- **La Tierra habitada**: la humanidad nace hace 300.000 años en África y se extiende sola por el planeta, con glaciaciones, puentes de tierra, agricultura, ciudades e industria. Cada hito se compara con su fecha real y su fuente. En el modo **Tu pueblo** guías a un grupo con decisiones en momentos clave, ganas rasgos y te encuentras con neandertales y denisovanos; cada decisión se compara con lo que pasó en la realidad.
 
 ## Cómo abrirlo
 
@@ -66,6 +66,12 @@ La calibración corre 30 partidas completas y compara sus hitos con la historia 
 
 ```bash
 node pruebas/calibrar.mjs
+```
+
+La prueba de juego recorre partidas completas de **Tu pueblo** con tres jugadores automáticos (siempre la primera opción, siempre la segunda y al azar) y sale con error si no se cumple alguno de estos criterios: entre 8 y 14 decisiones por partida (contando el Nacimiento), el jugador al azar vivo en 2026 en el 30–85 % de las partidas, decisiones que importan (medido por semilla, el pueblo final de la política que más tiene sobre la que menos tiene mediana ≥ 1,5, o la fracción de partidas vivas difiere en 20 puntos o más) y tiempo por partida de a lo sumo 1,15 veces el del modo Historia (la mejor de 3 rondas pareadas):
+
+```bash
+node pruebas/jugar.mjs
 ```
 
 Si cambian las texturas de la Tierra, hay que regenerar el mapa (requiere Pillow):

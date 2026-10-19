@@ -58,8 +58,12 @@ const Motor = (() => {
     saberMar: 1350,          // umbral para cruzar el mar sin navegación de altura (0 = sin compuerta)
     saberArcaico: 1550,      // umbral para desplazar a los humanos arcaicos (0 = se retiran enseguida)
     ocupaArcaico: 0.99,      // parte de la capacidad que ocupan los arcaicos en su territorio
-    desplaza: 0.005          // ritmo por año con que se retiran los arcaicos ante un saber mayor
+    desplaza: 0.005,         // ritmo por año con que se retiran los arcaicos ante un saber mayor
+    asimila: 0.35,           // tu pueblo: por debajo de esta fracción de una celda, los tuyos se integran a los demás
+    seleccion: 0.0025        // tu pueblo: ritmo por año con que la aptitud cambia la parte de los tuyos en una celda
   };
+  // Modificadores de tu pueblo que no cambian nada (los que falten en setModificadores toman estos valores)
+  const MODS_NEUTROS = Object.freeze({ aptitud: [], capacidad: [], migracion: 1, ecuador: 1, cruce: 1, evitaArcaicos: false, desplaza: 1, perdidaArcaicos: 0, epidemia: 0, bloqueo: 0 });
 
   const enCaja = (la, lo, [a, b, c, d]) => la >= a && la <= b && (c <= d ? lo >= c && lo <= d : lo >= c || lo <= d);
   const enCajas = (la, lo, cajas) => cajas.some(k => enCaja(la, lo, k));
@@ -83,9 +87,9 @@ const Motor = (() => {
   // Así el navegador y Node las optimizan una sola vez para todas las partidas, que es mucho más rápido que repetirlas
   // como funciones internas de cada partida.
 
-  // Generador pseudoaleatorio con semilla (mulberry32); su estado vive en E.azar[0]
-  function azar(E) {
-    const st = E.azar;
+  // Generador pseudoaleatorio con semilla (mulberry32); su estado vive en E.azar[0] (E.azarP[0] para lo propio de tu pueblo)
+  const azar = E => sortear(E.azar);
+  function sortear(st) {
     let t = st[0] = (st[0] + 0x6D2B79F5) >>> 0;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -129,6 +133,9 @@ const Motor = (() => {
       }
     }
     const lista = primera ? E.tierraL : E.estructurales;   // la primera vez, todas
+    // Con tu pueblo, las celdas que cambian de tipo de tierra (de eso dependen sus modificadores por celda)
+    const cambiados = E.pb !== null && E.pb.conDonde ? E.pb.cambiados : null;
+    let nCambiados = 0;
     for (let t = 0; t < lista.length; t++) {
       const i = lista[t];
       hielo[i] = g >= gHielo[i] ? 1 : 0;
@@ -137,6 +144,7 @@ const Motor = (() => {
       if (b === MAR) b = plataforma[i] ? puentes[puente[i]].bioma : MAR;
       else if (b === DESIERTO && (rio[i] || (hum && humedo[i]))) b = ESTEPA;
       if (hielo[i] && b !== MAR) b = HIELO;
+      if (cambiados !== null && b !== bio[i]) cambiados[nCambiados++] = i;
       bio[i] = b;
       const frio = 1 - pg * fracFrio[i];
       base[i] = (b === MAR ? 0 : areaT[i]) * frio;
@@ -147,6 +155,8 @@ const Motor = (() => {
       if (costa[i]) k *= extraCosta;
       kRec[i] = k;
     }
+    // La aptitud y la capacidad de tu pueblo pueden depender del tipo de tierra (lo demás de una celda no cambia con el clima)
+    if (nCambiados > 0) precalcularMods(E, cambiados.subarray(0, nCambiados));
   }
 
   // --- Capacidad: personas que puede alimentar la celda i en la etapa e (s = saber de recolectores de quien la habita) ---
@@ -177,22 +187,41 @@ const Motor = (() => {
   }
 
   // --- Gente: crecer, migrar y cruzar el mar ---
-  function vaciar(E, i) { E.pob[i] = 0; E.innov[i] = 0; E.saber[i] = 0; E.sr[i] = 0; E.etapa[i] = VACIA; E.cambioHab = true; }
+  function vaciar(E, i) {
+    E.pob[i] = 0; E.innov[i] = 0; E.saber[i] = 0; E.sr[i] = 0; E.etapa[i] = VACIA; E.cambioHab = true;
+    if (E.pb) { E.pb.tuyos[i] = 0; E.pb.linaje[i] = 0; }
+  }
   // Crecimiento logístico exacto hacia la capacidad (estable con pasos largos). La capacidad queda en capHab para migrar.
+  // Con pueblo, la capacidad de las celdas donde es mayoría se multiplica por la suya, y el crecimiento de la celda se reparte
+  // entre los tuyos y los demás según su aptitud (con aptitud 1, en la misma proporción).
   function crecer(E, dt) {
     const { P, pob, innov, sr, hab, capHab, expEtapa, base, kRec, cerrada, arc } = E, n = E.nHab, minimo = P.minimo;
+    const pb = E.pb, tuyos = pb ? pb.tuyos : null, apt = pb ? pb.apt : null, capM = pb ? pb.cap : null, sel = P.seleccion * dt;
     const saberDesierto = P.saberDesierto, ancho = P.ancho, ocupaArcaico = P.ocupaArcaico;
     for (let e = 0; e < 5; e++) { const r = P.crecimiento[e] * E.natalidad; expEtapa[e] = Math.exp(-r * dt); }
+    let ultA = NaN, ultPow = 1;
     for (let h = 0; h < n; h++) {
       const i = hab[h], p = pob[i];
       if (p <= 0) continue;
       const e = etapaDe(innov[i]);
       // La capacidad de recolectores (el caso más común) se calcula acá mismo; es la misma cuenta que en capacidad()
-      const K = e !== RECOLECTORES ? capacidad(E, i, e, sr[i]) : base[i] <= 0 ? 0 :
+      let K = e !== RECOLECTORES ? capacidad(E, i, e, sr[i]) : base[i] <= 0 ? 0 :
         kRec[i] * ((cerrada[i] ? rampa(sr[i], saberDesierto, ancho) : 1) * (1 - ocupaArcaico * arc[i]));
+      if (tuyos !== null && tuyos[i] > 0.5 * p) K *= capM[i * 5 + e];
       if (K <= 0) { vaciar(E, i); continue; }
       const q = K / (1 + ((K - p) / p) * expEtapa[e]);   // con r = 0 da q = p
-      if (q < minimo) vaciar(E, i); else { pob[i] = q; capHab[i] = K; }
+      if (q < minimo) vaciar(E, i);
+      else {
+        if (tuyos !== null && tuyos[i] > 0) {
+          const a = apt[i * 5 + e];
+          if (a === 1) tuyos[i] = Math.min(q, tuyos[i] * (q / p));
+          else {
+            if (a !== ultA) { ultA = a; ultPow = Math.pow(a, sel); }   // pocas aptitudes distintas: se repite casi siempre
+            const t = Math.min(1, tuyos[i] / p), tw = t * ultPow; tuyos[i] = q * tw / (tw + 1 - t);
+          }
+        }
+        pob[i] = q; capHab[i] = K;
+      }
     }
   }
   const pesoDe = (pob, K, j) => K <= 0 ? 0 : Math.max(K - pob[j], 0) + 0.01 * K;   // espacio libre más un poco (> 0 si K > 0)
@@ -213,6 +242,8 @@ const Motor = (() => {
   }
   // Una parte de cada celda se muda a las vecinas, más cuanto más llena está y hacia donde hay más espacio.
   // Todo se calcula con la población del inicio del paso y se aplica al final, así el orden de las celdas no influye.
+  // Con tu pueblo se usa migrarConPueblo, una copia con lo suyo en línea (este es el camino del modo Historia, y separarlos
+  // los deja a los dos chicos para que el navegador los optimice bien).
   function migrar(E, dt) {
     const { P, pob, innov, sr, kRec, arc, apta, vecinas, hab, capHab, marca, etapaPropia, masc, limite, atractivo, pesos, salen, llegan, llegaS, aporte, traen, destinos } = E;
     const exploracion = P.exploracion, presion = P.presion, minimo = P.minimo, saberDesierto = P.saberDesierto, ancho = P.ancho, ocupaArcaico = P.ocupaArcaico;
@@ -227,6 +258,8 @@ const Motor = (() => {
       if (x !== ultX) { ultX = x; ultE = Math.exp(x); }   // las celdas llenas repiten el mismo valor
       const sale = p * (1 - ultE);
       if (sale < minimo) continue;
+      // Este cálculo de pesos y la poda de abajo tienen copia en migrarConPueblo (y la poda, en podar): deben cambiar a la par.
+      // Lo guardan las huellas de motor-historia.test.mjs (este camino) y de pruebas/pueblo-huella.test.mjs (la copia).
       let suma = 0, wMin = Infinity;
       for (let k = 0; k < 8; k++) {
         const j = vecinas[i * 8 + k];
@@ -267,7 +300,9 @@ const Motor = (() => {
     // Primero se van, después llegan (cada celda solo mira lo suyo, así el orden no influye)
     for (let h = 0; h < n; h++) {
       const i = hab[h];
-      if (salen[i] !== 0) { pob[i] -= salen[i]; salen[i] = 0; if (pob[i] <= 0) E.cambioHab = true; }
+      if (salen[i] !== 0) {
+        pob[i] -= salen[i]; salen[i] = 0; if (pob[i] <= 0) E.cambioHab = true;
+      }
     }
     for (let d = 0; d < nDest; d++) {
       const i = destinos[d], l = llegan[i];
@@ -280,8 +315,181 @@ const Motor = (() => {
       llegan[i] = 0; llegaS[i] = 0; aporte[i] = 0;
     }
   }
+  // Como migrar, con tu pueblo: de las celdas con tuyos reparte repartirConPueblo; en las demás (casi todas) es lo mismo que
+  // repartirConPueblo con t = 0, en línea (allí la poda vuelve a sumar los pesos, que sin poda da la misma suma): los que salen
+  // llevan el linaje de su celda. Al final, el linaje de cada destino es el promedio de los que estaban y los que llegan, y cada
+  // celda se asimila (asimilarCelda) apenas queda como termina el paso de migrar.
+  function migrarConPueblo(E, dt) {
+    const { P, pob, innov, sr, kRec, arc, apta, vecinas, hab, capHab, marca, etapaPropia, masc, limite, atractivo, pesos, salen, llegan, llegaS, aporte, traen, destinos, llegaL } = E;
+    const exploracion = P.exploracion, presion = P.presion, minimo = P.minimo, saberDesierto = P.saberDesierto, ancho = P.ancho, ocupaArcaico = P.ocupaArcaico;
+    const { marcaEtapa, atractivoEtapa } = E, N = marca.length;
+    const n = E.nHab, pasoN = ++E.pasoN, { tuyos, linaje } = E.pb;
+    let nDest = 0, ultX = NaN, ultE = 0;
+    for (let h = 0; h < n; h++) {
+      const i = hab[h], p = pob[i];
+      if (p <= 0) continue;
+      const vi = innov[i], si = sr[i], K = capHab[i];   // la misma capacidad que al crecer
+      // (lo mismo que Math.min(1, p / K), sin dividir en las celdas llenas)
+      const x = -(exploracion + presion * (p >= K ? 1 : p / K)) * dt;
+      if (x !== ultX) { ultX = x; ultE = Math.exp(x); }   // las celdas llenas repiten el mismo valor
+      const sale = p * (1 - ultE);
+      if (sale < minimo) continue;
+      // Este cálculo de pesos y la poda de abajo son copia de los de migrar (y la poda, de podar): deben cambiar a la par. Lo
+      // guardan las huellas de pruebas/pueblo-huella.test.mjs (este camino) y de motor-historia.test.mjs (el de migrar).
+      let suma = 0, wMin = Infinity;
+      for (let k = 0; k < 8; k++) {
+        const j = vecinas[i * 8 + k];
+        pesos[k] = 0;
+        if (j < 0) continue;
+        if (marca[j] !== pasoN) propia(E, j, pasoN);
+        // Capacidad de la vecina con la forma de vida de ambas y el saber del que más sabe; casi siempre es la propia
+        let w = atractivo[j];
+        if (vi & masc[j]) {
+          const e = etapaDe(vi | innov[j]);
+          if (e !== etapaPropia[j]) {
+            // Quien llega trae otra etapa (agrícola o más): su capacidad no depende del saber, así que también se guarda por paso
+            const q = e * N + j;
+            if (marcaEtapa[q] !== pasoN) { marcaEtapa[q] = pasoN; atractivoEtapa[q] = pesoDe(pob, capacidad(E, j, e, Math.max(sr[j], si)), j); }
+            w = atractivoEtapa[q];
+          }
+        } else if (si > limite[j]) {
+          // Desierto con la compuerta a medio abrir: quien llega sabe más (capacidad de recolectores con su saber)
+          w = pesoDe(pob, kRec[j] * (rampa(Math.max(sr[j], si), saberDesierto, ancho) * (1 - ocupaArcaico * arc[j])), j);
+        }
+        if (w <= 0) continue;
+        pesos[k] = w;
+        suma += w;
+        if (w < wMin) wMin = w;
+      }
+      if (tuyos[i] > 0) { nDest = repartirConPueblo(E, i, p, sale, suma, wMin, nDest); continue; }
+      // La misma poda que podar (escrita aquí: llamarla deja sin optimizar `propia` dentro de esta función)
+      if (sale * wMin / suma < minimo) {
+        for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < minimo) { suma -= pesos[k]; pesos[k] = 0; }
+        suma = 0;
+        for (let k = 0; k < 8; k++) suma += pesos[k];
+      }
+      if (suma <= 0) continue;
+      const li = linaje[i];
+      salen[i] = sale;
+      for (let k = 0; k < 8; k++) if (pesos[k] > 0) {
+        const j = vecinas[i * 8 + k], v = sale * pesos[k] / suma;
+        if (llegan[j] === 0) destinos[nDest++] = j;
+        llegan[j] += v;
+        llegaS[j] += v * si;
+        if (li !== 0) llegaL[j] += v * li;   // (sumar 0 no cambia nada)
+        if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(apta, vi, j); }
+      }
+    }
+    llegarConPueblo(E, n, nDest);
+  }
+  // Segunda mitad de migrarConPueblo (aparte, para que las dos queden chicas y el navegador las optimice bien)
+  function llegarConPueblo(E, n, nDest) {
+    const { P, pob, innov, sr, hab, salen, llegan, llegaS, aporte, destinos, salenT, llegaT, llegaL } = E, traen = E.traen;
+    const { tuyos, linaje } = E.pb, minimo = P.minimo, asimila = P.asimila;
+    // Primero se van, después llegan (cada celda solo mira lo suyo, así el orden no influye)
+    for (let h = 0; h < n; h++) {
+      const i = hab[h];
+      if (salen[i] !== 0) {
+        pob[i] -= salen[i]; salen[i] = 0; if (pob[i] <= 0) E.cambioHab = true;
+        if (salenT[i] !== 0) { tuyos[i] -= salenT[i]; salenT[i] = 0; }
+      }
+      if (tuyos[i] !== 0 && llegan[i] === 0) asimilarCelda(tuyos, pob, i, minimo, asimila);   // a los destinos, al llegar
+    }
+    for (let d = 0; d < nDest; d++) {
+      const i = destinos[d], l = llegan[i];
+      if (pob[i] <= 0) E.cambioHab = true;   // una celda nueva
+      const traido = llegaS[i] / l;   // saber medio de los que llegan
+      sr[i] = pob[i] <= 0 ? traido : Math.max(sr[i], traido);
+      // El linaje de la celda pasa a ser el promedio, por personas, de los que estaban y los que llegan
+      const ant = Math.max(pob[i], 0), lL = llegaL[i];
+      if (lL !== 0 || linaje[i] !== 0) { linaje[i] = Math.min(1, (linaje[i] * ant + lL) / (ant + l)); llegaL[i] = 0; }   // 0 y 0 da 0
+      if (llegaT[i] !== 0) { tuyos[i] += llegaT[i]; llegaT[i] = 0; }
+      // Si los recién llegados son mayoría, traen su forma de vida (agricultores que desplazan a recolectores)
+      if (l > pob[i]) innov[i] |= sinBloqueo(E, i, traen[i], ant + l);
+      pob[i] += l;
+      llegan[i] = 0; llegaS[i] = 0; aporte[i] = 0;
+      if (tuyos[i] !== 0) asimilarCelda(tuyos, pob, i, minimo, asimila);
+    }
+    E.pb.nTocadas = 0; E.pb.pasoT++;   // desde aquí, asimilar solo revisa las celdas que cambien (cruces y pérdidas)
+  }
+  // Grupos de menos de `minimo` personas no se van: poda (en orden, como en migrar) las vecinas que recibirían menos.
+  // Devuelve la suma de los pesos que quedan, sumada de nuevo para que dé 0 exacto si no queda ninguno (restando puede
+  // sobrar un residuo, y esa gente saldría sin llegar a ningún lado).
+  function podar(pesos, sale, suma, minimo) {
+    for (let k = 0; k < 8; k++) if (pesos[k] > 0 && sale * pesos[k] / suma < minimo) { suma -= pesos[k]; pesos[k] = 0; }
+    let queda = 0;
+    for (let k = 0; k < 8; k++) queda += pesos[k];
+    return queda;
+  }
+  // Emigración de una celda con tu pueblo en juego: de los que salen, la parte de los tuyos (la fracción t del inicio del paso)
+  // solo va a vecinas vacías o donde tu pueblo es mayoría (y, si los evita, sin arcaicos); los demás van como siempre. Todos
+  // llevan el linaje de su celda. Los tuyos que salen se multiplican por `migracion` (sin pasar de los que hay), y las vecinas
+  // más cerca del ecuador que la celda pesan `ecuador` veces más para ellos.
+  // Usa los pesos que migrar ya calculó en E.pesos (wMin, el menor); devuelve el nuevo largo de la lista de destinos.
+  // La poda solo se hace si el grupo más chico no llega a `minimo` (si no, podar no quitaría nada y daría la misma suma).
+  function repartirConPueblo(E, i, p, sale, suma, wMin, nDest) {
+    const { P, pob, innov, sr, apta, arc, vecinas, pesos, pesosT, salen, salenT, llegan, llegaS, llegaT, llegaL, aporte, traen, destinos } = E;
+    const { tuyos, linaje, mods } = E.pb, minimo = P.minimo, vi = innov[i], si = sr[i], li = linaje[i], evita = mods.evitaArcaicos;
+    const t = Math.min(1, tuyos[i] / p), saleO = sale * (1 - t), saleT = Math.min(tuyos[i], sale * t * mods.migracion);
+    const ecuador = mods.ecuador, latI = ecuador !== 1 ? Math.abs(E.lat[i]) : 0;
+    // Una parte que en total no llega a `minimo` no se va: podar quitaría todas sus vecinas y daría 0, así que se salta sin
+    // recorrerlas (el margen cubre el redondeo de sale · peso / suma, que con una sola vecina puede pasar de sale en un ulp).
+    // Sus pesos quedan sin usar: solo se leen si esa parte sale.
+    const casiMinimo = minimo * (1 - 1e-9);
+    let sumaT = 0, wMinT = Infinity;
+    if (saleT >= casiMinimo) for (let k = 0; k < 8; k++) {
+      pesosT[k] = 0;
+      if (pesos[k] <= 0) continue;
+      const j = vecinas[i * 8 + k];
+      if ((pob[j] <= 0 || tuyos[j] > 0.5 * pob[j]) && !(evita && arc[j] > 0)) {
+        const w = ecuador !== 1 && Math.abs(E.lat[j]) < latI ? pesos[k] * ecuador : pesos[k];
+        pesosT[k] = w; sumaT += w; if (w < wMinT) wMinT = w;
+      }
+    }
+    // Cada parte por su lado: si no le queda adónde ir, se queda
+    let sumaO = suma > 0 && saleO >= casiMinimo ? (saleO * wMin / suma < minimo ? podar(pesos, saleO, suma, minimo) : suma) : 0;
+    if (sumaT > 0 && saleT * wMinT / sumaT < minimo) sumaT = podar(pesosT, saleT, sumaT, minimo);
+    const vaO = sumaO > 0 ? saleO : 0, vaT = sumaT > 0 ? saleT : 0;
+    if (vaO + vaT <= 0) return nDest;
+    salen[i] = vaO + vaT; salenT[i] = vaT;
+    for (let k = 0; k < 8; k++) {
+      const vO = vaO > 0 && pesos[k] > 0 ? vaO * pesos[k] / sumaO : 0, vT = vaT > 0 && pesosT[k] > 0 ? vaT * pesosT[k] / sumaT : 0;
+      const v = vO + vT;
+      if (v <= 0) continue;
+      const j = vecinas[i * 8 + k];
+      if (llegan[j] === 0) destinos[nDest++] = j;
+      llegan[j] += v;
+      llegaS[j] += v * si;
+      llegaT[j] += vT;
+      llegaL[j] += v * li;
+      if (v > aporte[j]) { aporte[j] = v; traen[j] = aptas(apta, vi, j); }
+    }
+    return nDest;
+  }
+  // Donde los tuyos son muy pocos (menos de `minimo` o de la fracción `asimila` de la celda), se integran a los demás; su
+  // herencia sigue en `linaje`. De paso se corrige el redondeo para que nunca haya más tuyos que gente.
+  function asimilarCelda(tuyos, pob, i, minimo, asimila) {
+    let tu = tuyos[i];
+    if (tu <= 0) { tuyos[i] = 0; return; }
+    if (tu > pob[i]) tuyos[i] = tu = Math.max(pob[i], 0);
+    if (tu < Math.max(minimo, asimila * pob[i])) tuyos[i] = 0;
+  }
+  // migrarConPueblo deja todas las celdas asimiladas; después solo cambian los tuyos o la gente de las celdas de los cruces por
+  // mar y de las pérdidas de tu pueblo, que se anotan con `tocar` y se revisan al final del paso
+  function tocar(pb, i) {
+    if (pb.sello[i] === pb.pasoT) return;
+    pb.sello[i] = pb.pasoT;
+    pb.tocadas[pb.nTocadas++] = i;
+  }
+  function asimilar(E) {
+    const pb = E.pb, { tuyos, tocadas } = pb, minimo = E.P.minimo, asimila = E.P.asimila;
+    for (let t = 0; t < pb.nTocadas; t++) asimilarCelda(tuyos, E.pob, tocadas[t], minimo, asimila);
+    pb.nTocadas = 0;
+    pb.pasoT++;
+  }
   // Tierra habitable alcanzable cruzando hasta `alcance` celdas de agua (sin contar la costa de partida)
-  function destinoPorMar(E, i, alcance) {
+  // (st: el estado del generador con que se sortea la candidata)
+  function destinoPorMar(E, i, alcance, st) {
     // Qué tierra se alcanza, y en qué orden, solo depende del mapa y de los puentes: se recorre una vez y se guarda
     const clave = alcance * 1e6 + i;
     let alcanzable = E.caminosMar.get(clave);
@@ -289,7 +497,7 @@ const Motor = (() => {
     const { candidatas } = E, si = E.sr[i];
     candidatas.length = 0;
     for (let t = 0; t < alcanzable.length; t++) { const j = alcanzable[t]; if (capacidad(E, j, RECOLECTORES, si) > 0) candidatas.push(j); }
-    return candidatas.length ? candidatas[Math.floor(azar(E) * candidatas.length)] : -1;
+    return candidatas.length ? candidatas[Math.floor(sortear(st) * candidatas.length)] : -1;
   }
   // Recorrido por el agua desde la costa i: la tierra que encuentra, en orden (la vecina de la costa de partida no cuenta)
   function recorrerMar(E, i, alcance) {
@@ -310,7 +518,9 @@ const Motor = (() => {
     return Int32Array.from(tierraVista);
   }
   function cruzarMar(E, dt) {
-    const { P, pob, innov, sr, apta, costerasL } = E, cruceMult = E.cruceMult;
+    const { P, pob, innov, sr, costerasL } = E, cruceMult = E.cruceMult, pb = E.pb;
+    // Cruces propios de tu pueblo: la tasa extra sobre la de cada costa (0 = ninguno)
+    const extra = pb !== null && pb.mods.cruce > 1 ? pb.mods.cruce - 1 : 0;
     let ultX = NaN, ultP = 0;
     for (let c = 0; c < costerasL.length; c++) {
       const i = costerasL[c];
@@ -319,16 +529,97 @@ const Motor = (() => {
       const compuerta = nivel < 2 ? rampa(sr[i], P.saberMar, P.ancho) : 1;   // sin navegación de altura, el mar espera al saber
       const x = -P.cruce[nivel] * compuerta * cruceMult * dt;
       if (x !== ultX) { ultX = x; ultP = 1 - Math.exp(x); }   // casi siempre se repite
-      if (azar(E) >= ultP) continue;
-      const j = destinoPorMar(E, i, P.alcance[nivel]);
-      if (j < 0) continue;
-      const grupo = Math.min(Math.max(pob[i] * 0.05, 2 * P.minimo), 500, pob[i] / 2);
-      pob[i] -= grupo;
-      if (pob[j] <= 0) { innov[j] = 0; sr[j] = sr[i]; E.cambioHab = true; } else sr[j] = Math.max(sr[j], sr[i]);
-      innov[j] |= aptas(apta, innov[i], j);   // el contacto también lleva las innovaciones
-      pob[j] += grupo;
+      if (azar(E) < ultP) {
+        const j = destinoPorMar(E, i, P.alcance[nivel], E.azar);
+        if (j >= 0) {
+          const grupo = Math.min(Math.max(pob[i] * 0.05, 2 * P.minimo), 500, pob[i] / 2);
+          if (pb) { llevarPorMar(E, i, j, grupo, grupo * Math.min(1, pb.tuyos[i] / pob[i])); tocar(pb, i); tocar(pb, j); }
+          desembarcar(E, i, j, grupo);
+        }
+      }
+      // Con su propio azar, así el del resto del mundo no cambia
+      if (extra > 0 && pb.tuyos[i] > 0.5 * pob[i] && sortear(E.azarP) < probPor(P.cruce[nivel] * compuerta * cruceMult * extra, dt)) {
+        const j = destinoPorMar(E, i, P.alcance[nivel], E.azarP);
+        if (j < 0) continue;
+        const tu = pb.tuyos[i], grupo = Math.min(Math.max(tu * 0.05, 2 * P.minimo), 500, tu / 2);   // solo tuyos
+        llevarPorMar(E, i, j, grupo, grupo); tocar(pb, i); tocar(pb, j);
+        desembarcar(E, i, j, grupo);
+      }
     }
   }
+  // El grupo deja la costa i y llega a j con su saber y sus innovaciones
+  function desembarcar(E, i, j, grupo) {
+    const { pob, innov, sr, apta } = E;
+    pob[i] -= grupo;
+    if (pob[j] <= 0) { innov[j] = 0; sr[j] = sr[i]; E.cambioHab = true; } else sr[j] = Math.max(sr[j], sr[i]);
+    const bits = aptas(apta, innov[i], j);   // el contacto también lleva las innovaciones
+    innov[j] |= E.pb ? sinBloqueo(E, j, bits, Math.max(pob[j], 0) + grupo) : bits;
+    pob[j] += grupo;
+  }
+
+  // El grupo que cruza el mar lleva gT tuyos y el linaje de su celda (antes de mover a la gente)
+  function llevarPorMar(E, i, j, grupo, gT) {
+    const { pob } = E, { tuyos, linaje } = E.pb, ant = Math.max(pob[j], 0);
+    linaje[j] = Math.min(1, (linaje[j] * ant + grupo * linaje[i]) / (ant + grupo));
+    tuyos[i] -= gT;
+    tuyos[j] += gT;
+  }
+
+  // --- Tu pueblo: modificadores de sus decisiones y rasgos ---
+  // Una celda cumple un `donde` si cumple todas sus claves (e: la etapa con la que se la mira)
+  function cumple(E, d, i, e) {
+    const b = E.bio[i];
+    if (d.biomas && !d.biomas.includes(b)) return false;
+    if (d.etapas && !d.etapas.includes(e)) return false;
+    if (d.cajas && !enCajas(E.lat[i], E.lon[i], d.cajas)) return false;
+    if (d.frio !== undefined && d.frio !== (Math.abs(E.lat[i]) >= 45 || b === TUNDRA || b === HIELO)) return false;   // false: las no frías
+    if (d.costa && !E.costa[i]) return false;
+    return true;
+  }
+  function producto(E, entradas, i, e) {
+    let a = 1;
+    for (const { donde, valor } of entradas) if (cumple(E, donde, i, e)) a *= valor;
+    return a;
+  }
+  // Producto de la aptitud y de la capacidad de cada celda de `lista` en cada etapa (posición i·5 + etapa), para no evaluar
+  // los `donde` en cada paso
+  // Una lista vacía da 1 en todas partes, y una sin `etapas` da lo mismo en las cuatro etapas: se calcula una sola vez
+  function precalcularMods(E, lista) {
+    const { apt, cap, mods } = E.pb;
+    for (const [tabla, entradas] of [[apt, mods.aptitud], [cap, mods.capacidad]]) {
+      const porEtapa = entradas.some(x => x.donde.etapas);
+      for (let t = 0; t < lista.length; t++) {
+        const i = lista[t];
+        if (porEtapa) for (let e = RECOLECTORES; e <= INDUSTRIAL; e++) tabla[i * 5 + e] = producto(E, entradas, i, e);
+        else tabla.fill(entradas.length ? producto(E, entradas, i, RECOLECTORES) : 1, i * 5 + RECOLECTORES, i * 5 + INDUSTRIAL + 1);
+      }
+    }
+  }
+  // Mueren d de los tuyos de la celda i; los muertos se llevan su linaje completo. Una celda que queda con menos de
+  // `minimo` personas se vacía.
+  function morir(E, i, d) {
+    const { pob } = E, { tuyos, linaje } = E.pb, p = pob[i];
+    tocar(E.pb, i);
+    tuyos[i] -= d; pob[i] -= d;
+    if (pob[i] < E.P.minimo) { vaciar(E, i); return; }
+    linaje[i] = Math.max(0, (linaje[i] * p - d) / pob[i]);
+  }
+  // Pérdidas propias de tu pueblo en las celdas donde es mayoría: la competencia con arcaicos vecinos y las epidemias urbanas
+  function pueblo(E, dt) {
+    const { pob, innov, arc, vecinas, hab } = E, { tuyos, mods } = E.pb, n = E.nHab;
+    const fA = probPor(mods.perdidaArcaicos, dt), fE = probPor(mods.epidemia, dt);
+    if (fA <= 0 && fE <= 0) return;
+    for (let h = 0; h < n; h++) {
+      const i = hab[h], p = pob[i];
+      if (p <= 0 || !(tuyos[i] > 0.5 * p)) continue;
+      let queda = 1;
+      if (fE > 0 && etapaDe(innov[i]) >= URBANA) queda *= 1 - fE;
+      if (fA > 0) for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && arc[j] > 0) { queda *= 1 - fA; break; } }
+      if (queda < 1) morir(E, i, tuyos[i] * (1 - queda));
+    }
+  }
+  // Los bits de `bloqueo` no entran en una celda donde tu pueblo es mayoría (p: la gente de la celda con los que llegan)
+  const sinBloqueo = (E, i, bits, p) => E.pb.tuyos[i] > 0.5 * p ? bits & ~E.pb.mods.bloqueo : bits;
 
   // --- Hitos ---
   function hito(E, id, i) {
@@ -381,12 +672,16 @@ const Motor = (() => {
     const fracInd = E.total > 0 ? E.totalIndustrial / E.total : 0;
     const dtRec = dt * P.ritmoRec, difRec = probPor(P.difRec, dt), holoceno = E.año >= historia.holoceno;
     const difSaber = probPor(P.difusionSaber * 1, dt), difSaberEscrito = probPor(P.difusionSaber * P.contagioEscritura, dt);
+    const tuyos = E.pb !== null && E.pb.mods.bloqueo ? E.pb.tuyos : null, bloqueo = tuyos !== null ? E.pb.mods.bloqueo : 0;
     // Solo las celdas habitadas (las vacías ya quedaron como VACIA al listarlas)
     const n = E.nHab;
     for (let h = 0; h < n; h++) {
       const i = hab[h], p = pob[i];
       let v = innov[i];
       const apta = E.apta[i] === 1;
+      // Donde tu pueblo es mayoría, los bits bloqueados que la celda no tiene cuentan como si ya los tuviera para no ganarlos
+      // (pero no para lo que depende de ellos)
+      const bloq = tuyos !== null && tuyos[i] > 0.5 * p ? bloqueo & ~v : 0;
       // Saber de recolectores: crece con la gente y sube hacia el de las vecinas cuando es mayor.
       // De paso se juntan las innovaciones de las vecinas habitadas (para el contagio) y el saber de las agrícolas.
       let s = sr[i] + dtRec * (p / 1e6), sumaR = 0, nR = 0, union = 0, sumaS = 0, nS = 0;
@@ -408,38 +703,38 @@ const Motor = (() => {
         if (nS && sumaS / nS > sa) sa += (sumaS / nS - sa) * (escribe ? difSaberEscrito : difSaber);
         saber[i] = sa;
       }
-      if (!(v & COSTERA) && costa[i] && azar(E) < probPor(P.costera * p / 1000, dt)) v |= COSTERA;
-      if (!(v & AGRICULTURA) && apta && holoceno && domestica[i] >= 0) {
+      if (!((v | bloq) & COSTERA) && costa[i] && azar(E) < probPor(P.costera * p / 1000, dt)) v |= COSTERA;
+      if (!((v | bloq) & AGRICULTURA) && apta && holoceno && domestica[i] >= 0) {
         const d = historia.domesticables[domestica[i]];
         const llena = Math.min(1, Math.max(0, (p / capacidad(E, i, RECOLECTORES, sr[i]) - P.llenaAgricultura) / (1 - P.llenaAgricultura)));
         if (llena > 0 && azar(E) < probPor(P.agricultura * d.riqueza * llena, dt)) { v |= AGRICULTURA; hito(E, `agricultura_${d.id}`, i); }
       }
-      if ((v & AGRICULTURA) && !(v & CIUDADES)) {
+      if ((v & AGRICULTURA) && !((v | bloq) & CIUDADES)) {
         const exceso = Math.min(1, Math.max(0, p / base[i] / P.densidadCiudad - 1));
         if (exceso > 0 && azar(E) < probPor(P.ciudades * exceso * vecinasCon(E, i, AGRICULTURA) / 8, dt)) { v |= CIUDADES; hito(E, "primera_ciudad", i); }
       }
-      if ((v & CIUDADES) && !(v & ESCRITURA)) {
+      if ((v & CIUDADES) && !((v | bloq) & ESCRITURA)) {
         const red = vecinasCon(E, i, CIUDADES) - P.vecinosEscritura + 1;
         if (red > 0 && azar(E) < probPor(P.escritura * red, dt)) { v |= ESCRITURA; hito(E, "escritura", i); }
       }
-      if ((v & COSTERA) && (v & AGRICULTURA) && !(v & ALTURA) && costa[i]) {
+      if ((v & COSTERA) && (v & AGRICULTURA) && !((v | bloq) & ALTURA) && costa[i]) {
         const s = Math.min(1, saber[i] / P.saberAltura);
         if (s > 0 && azar(E) < probPor(P.altura * s, dt)) v |= ALTURA;
       }
-      if ((v & ESCRITURA) && !(v & INDUSTRIA)) {
+      if ((v & ESCRITURA) && !((v | bloq) & INDUSTRIA)) {
         const exceso = Math.min(1, Math.max(0, saber[i] / P.saberIndustria - 1));
         if (exceso > 0 && azar(E) < probPor(P.industria * exceso, dt)) { v |= INDUSTRIA; hito(E, "industria", i); }
       }
       // Contagio desde las vecinas (más rápido con escritura) y, para la industria, desde todo el mundo agrícola.
       // Lo que la celda nunca podría adoptar (navegación tierra adentro, lo agrícola donde no se cultiva) no cuenta.
-      const global = fracInd > 0 && apta && (v & AGRICULTURA) && !(v & INDUSTRIA);
-      let nuevas = union & ~v;
+      const global = fracInd > 0 && apta && (v & AGRICULTURA) && !((v | bloq) & INDUSTRIA);
+      let nuevas = union & ~(v | bloq);
       if (!costa[i]) nuevas &= ~(COSTERA | ALTURA);
       if (!apta) nuevas &= COSTERA | ALTURA;
       if (nuevas || global) {
         const mult = (v | union) & ESCRITURA ? P.contagioEscritura : 1;   // la celda o alguna vecina escribe
         for (const bit of BITS) {
-          if ((v & bit) || !puedeAdoptar(bit, v, i, apta, costa)) continue;
+          if (((v | bloq) & bit) || !puedeAdoptar(bit, v, i, apta, costa)) continue;
           let tasa = union & bit ? P.contagio[bit] * vecinasCon(E, i, bit) * mult : 0;
           if (bit === INDUSTRIA) tasa += P.industriaGlobal * fracInd;
           if (tasa > 0 && azar(E) < probPor(tasa, dt)) v |= bit;
@@ -453,6 +748,8 @@ const Motor = (() => {
   // --- Humanos arcaicos: se retiran donde el saber de recolectores de nuestra especie (en la celda o sus vecinas) supera el suyo ---
   function desplazar(E, dt) {
     const { P, historia, pob, sr, arc, vecinas, especie, ocupadas, arcInicial } = E;
+    // Tu pueblo puede desplazarlos más rápido (o más lento) donde la celda o una vecina es mayoría suya
+    const tuyos = E.pb !== null && E.pb.mods.desplaza !== 1 ? E.pb.tuyos : null, multT = tuyos !== null ? E.pb.mods.desplaza : 1;
     // `ocupadas`: las celdas que todavía ocupan, en su orden (una celda que se libera no vuelve)
     let n = 0;
     for (let t = 0; t < E.nOcupadas; t++) {
@@ -461,7 +758,14 @@ const Motor = (() => {
       let s = pob[i] > 0 ? sr[i] : 0;
       for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && pob[j] > 0 && sr[j] > s) s = sr[j]; }
       const ventaja = rampa(s, P.saberArcaico, P.ancho);
-      if (ventaja > 0) { arc[i] *= Math.exp(-P.desplaza * ventaja * dt); if (arc[i] < 0.01) arc[i] = 0; }
+      if (ventaja > 0) {
+        let mult = 1;
+        if (tuyos !== null) {
+          if (tuyos[i] > 0.5 * pob[i]) mult = multT;
+          else for (let k = 0; k < 8; k++) { const j = vecinas[i * 8 + k]; if (j >= 0 && tuyos[j] > 0.5 * pob[j]) { mult = multT; break; } }
+        }
+        arc[i] *= Math.exp(-P.desplaza * ventaja * dt * mult); if (arc[i] < 0.01) arc[i] = 0;
+      }
       if (arc[i] > 0) ocupadas[n++] = i;
     }
     E.nOcupadas = n;
@@ -479,11 +783,12 @@ const Motor = (() => {
     E.año += dt;
     actualizarClima(E);
     crecer(E, dt);
-    migrar(E, dt);
+    if (E.pb !== null) migrarConPueblo(E, dt); else migrar(E, dt);
     cruzarMar(E, dt);
     listarHabitadas(E);
     innovar(E, dt);
     desplazar(E, dt);
+    if (E.pb !== null) { pueblo(E, dt); asimilar(E); }
     contar(E);
     revisarHitos(E);
   }
@@ -584,8 +889,10 @@ const Motor = (() => {
       P, historia, natalidad: opciones.natalidad ?? 1, glacial: opciones.intensidadGlacial ?? 1,
       conPuentes: opciones.puentesDeTierra ?? true, cruceMult: opciones.cruceDeMar ?? 1,
       azar: new Uint32Array([semilla]),
+      // Tu pueblo (null en el modo Historia): tuyos y linaje por celda, y su propio azar para no tocar el de la partida
+      pb: null, azarP: null, salenT: null, llegaT: null, llegaL: null, pesosT: new Float64Array(8),
       // Mundo
-      tierraL: Int32Array.from(tierra), costerasL: Int32Array.from(costeras), estructurales, soloFrio, vecinas, costa, bioma0, rio, humedo, gHielo,
+      lat, lon, tierraL: Int32Array.from(tierra), costerasL: Int32Array.from(costeras), estructurales, soloFrio, vecinas, costa, bioma0, rio, humedo, gHielo,
       puente, region, domestica, areaT, fracFrio, latApta, cerrada, especie,
       // Clima y capacidad base (según el clima: tipo de tierra, si se puede cultivar, capacidad base de recolectores)
       clima: { nivelMar: 0, intensidadGlacial: 0, humedoSahara: false, puentesAbiertos: [] }, climaCeldas: "",
@@ -626,24 +933,78 @@ const Motor = (() => {
 
     actualizarClima(E);
     for (const o of historia.origenes) pob[celdaDe(o.lat, o.lon)] += o.personas;
+    if (opciones.pueblo) {
+      const o = historia.origenes[opciones.pueblo.origen];
+      if (!o) throw new Error(`No hay origen ${opciones.pueblo.origen} para tu pueblo`);
+      // mods: los modificadores de tus decisiones y rasgos; apt y cap, sus productos por celda y etapa (ver precalcularMods);
+      // conDonde: si alguno depende de la celda
+      E.pb = { tuyos: new Float64Array(N), linaje: new Float32Array(N), mods: MODS_NEUTROS, apt: new Float32Array(5 * N).fill(1), cap: new Float32Array(5 * N).fill(1), conDonde: false, cambiados: new Int32Array(N),
+        tocadas: new Int32Array(N), nTocadas: 0, sello: new Int32Array(N).fill(-1), pasoT: 0 };
+      E.azarP = new Uint32Array([(semilla ^ 0x9e3779b9) >>> 0]);
+      E.salenT = new Float64Array(N); E.llegaT = new Float64Array(N); E.llegaL = new Float64Array(N);
+      const i = celdaDe(o.lat, o.lon);
+      E.pb.tuyos[i] = o.personas;
+      E.pb.linaje[i] = o.personas / pob[i];   // 1, salvo que otro origen empiece en la misma celda
+    }
     for (const i of tierra) etapa[i] = pob[i] > 0 ? RECOLECTORES : VACIA;
     listarHabitadas(E);
     contar(E);
     E.empezoConGente = E.total > 0;
 
+    // Tu pueblo visto desde afuera: los arreglos por celda y sus cuentas
+    const pueblo = E.pb && {
+      tuyos: E.pb.tuyos, linaje: E.pb.linaje,
+      total() { let t = 0; const tu = E.pb.tuyos; for (let k = 0; k < tierra.length; k++) t += tu[tierra[k]]; return t; },
+      // Personas "equivalentes" que descienden de tu pueblo
+      herencia() { let t = 0; const l = E.pb.linaje; for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; t += l[i] * pob[i]; } return t; },
+      // Gente que vive en celdas con algo de tu linaje (más de 0,1 %)
+      conLinaje() { let t = 0; const l = E.pb.linaje; for (let k = 0; k < tierra.length; k++) { const i = tierra[k]; if (l[i] > 0.001) t += pob[i]; } return t; },
+      mayoria: i => E.pb.tuyos[i] > 0.5 * pob[i],
+      celdas: () => Int32Array.from(tierra.filter(i => E.pb.tuyos[i] > 0))
+    };
+    // Tu pueblo pierde esa fracción de su gente en cada celda (mueren); las celdas que quedan con menos de `minimo` se vacían
+    function perderPueblo(fraccion) {
+      if (!E.pb) return;
+      const tu = E.pb.tuyos;
+      for (const i of tierra) if (tu[i] > 0) morir(E, i, tu[i] * fraccion);
+      listarHabitadas(E);
+      contar(E);
+    }
+    // Reemplaza los modificadores de tu pueblo (los que falten, neutros)
+    function setModificadores(mods) {
+      if (!E.pb) return;
+      const antes = E.pb.mods, m = E.pb.mods = { ...MODS_NEUTROS, ...mods };
+      E.pb.conDonde = m.aptitud.length > 0 || m.capacidad.length > 0;
+      // Las tablas por celda solo dependen de las listas de aptitud y capacidad (y del tipo de tierra, que actualizarClima
+      // sigue): si traen las mismas entradas, ya están al día
+      const igual = (x, y) => x.length === y.length && x.every((e, k) => e === y[k]);
+      if (!igual(m.aptitud, antes.aptitud) || !igual(m.capacidad, antes.capacidad)) precalcularMods(E, E.tierraL);
+    }
+
     return {
       semilla,
       avanzar,
+      pueblo: () => pueblo || null,
+      perderPueblo,
+      setModificadores,
       año: () => E.año,
       pasoMax: () => tramo(historia.pasos, E.año),
       poblacionTotal: () => E.total,
+      // Las celdas habitadas, en el orden de `tierra`, son las primeras nHabitadas() de celdas.habitadas (una que se vació en
+      // este paso puede seguir en la lista, con población 0)
+      nHabitadas: () => E.nHab,
       terminado: () => E.fin,
       climaActual: () => E.clima,
       alHito(fn) { E.oyentes.push(fn); },
       hitos: () => E.logros.slice(),
       capacidad: i => capacidad(E, i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES, sr[i]),
+      // Para tu pueblo: la capacidad (como `capacidad`) de las celdas lista[0], …, lista[n − 1], en out[0], …, out[n − 1]
+      capacidades(lista, n, out) { for (let h = 0; h < n; h++) { const i = lista[h]; out[h] = capacidad(E, i, pob[i] > 0 ? etapaDe(innov[i]) : RECOLECTORES, sr[i]); } },
       celdaDe,
-      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma, saberRecolector: sr, arcaicos: arc },
+      // Solo lectura. `bioma` es el tipo de tierra según el clima de ahora; `area`, la superficie de cada celda en km²; `especie`, el
+      // índice de historia.arcaicos (−1 sin arcaicos); `domestica`, el de historia.domesticables (−1 si no hay); `costa`, 1 en la costa
+      celdas: { ancho: W, alto: H, grados: G, lat, lon, tierra, poblacion: pob, etapa, innovaciones: innov, region, hielo, plataforma, saberRecolector: sr, arcaicos: arc,
+        especie, domestica, area: areaT, bioma: E.bio, costa, habitadas: E.hab },
       poblacionPorRegion() {
         const t = new Float64Array(historia.regiones.length);
         for (const i of tierra) if (region[i] >= 0) t[region[i]] += pob[i];
@@ -653,7 +1014,7 @@ const Motor = (() => {
   }
 
   return {
-    crear, tramo, PARAMS,
+    crear, tramo, PARAMS, MODS_NEUTROS,
     BIOMA: { MAR, HIELO, TUNDRA, DESIERTO, ESTEPA, BOSQUE, SELVA },
     INNOVACION: { COSTERA, AGRICULTURA, CIUDADES, ESCRITURA, ALTURA, INDUSTRIA },
     ETAPA: { VACIA, RECOLECTORES, AGRICULTORES, URBANA, INDUSTRIAL }

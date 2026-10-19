@@ -1,6 +1,8 @@
 // Escena 3D de la escala "La Tierra": globo con hielo y costas antiguas, bandas que caminan y luces de la partida.
 const VistaTierra = (() => {
   const R = 10, D2R = Math.PI / 180, MAX_BANDAS = 3000, MAX_LUCES = 20000;
+  // Colores de las bandas y luces: cálido de siempre, y celeste donde tu pueblo es mayoría (modo "Tu pueblo")
+  const CALIDO = [1, 0xc2 / 255, 0x7a / 255], CELESTE = [0x7f / 255, 0xd8 / 255, 1], LUZ = [1, 0.78, 0.45];
 
   // Escribe en arr el punto k de latitud y longitud dadas sobre una esfera de radio `radio`, con la misma
   // orientación que las texturas en THREE.SphereGeometry (u = 0 en la longitud −180°, v = 1 en el polo norte)
@@ -72,8 +74,10 @@ const VistaTierra = (() => {
     const bPos = new Float32Array(MAX_BANDAS * 3);
     const bandasGeo = new THREE.BufferGeometry();
     bandasGeo.setAttribute("position", new THREE.BufferAttribute(bPos, 3));
+    const bCol = new Float32Array(MAX_BANDAS * 3);
+    bandasGeo.setAttribute("color", new THREE.BufferAttribute(bCol, 3));
     bandasGeo.setDrawRange(0, 0);
-    const bandas = new THREE.Points(bandasGeo, new THREE.PointsMaterial({ color: 0xffc27a, size: 3.2, sizeAttenuation: false, map: punto,
+    const bandas = new THREE.Points(bandasGeo, new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 3.2, sizeAttenuation: false, map: punto,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     bandas.frustumCulled = false;
     scene.add(bandas);
@@ -105,6 +109,16 @@ const VistaTierra = (() => {
       for (const [i, n] of quiere) for (let ya = tiene.get(i) || 0; ya < n && k < MAX_BANDAS; ya++) nuevaBanda(k++, i);
       nBandas = k;
       bandasGeo.setDrawRange(0, nBandas);
+      pintarBandas();
+    }
+    // Colorea cada banda según si su celda es de tu pueblo (sin crear nada: solo escribe en bCol)
+    function pintarBandas() {
+      const pb = partida.motor().pueblo();
+      for (let b = 0; b < nBandas; b++) {
+        const col = pb !== null && pb.mayoria(bCelda[b]) ? CELESTE : CALIDO;
+        bCol[b * 3] = col[0]; bCol[b * 3 + 1] = col[1]; bCol[b * 3 + 2] = col[2];
+      }
+      bandasGeo.attributes.color.needsUpdate = true;
     }
     function moverBandas(dt) {
       const c = partida.motor().celdas, G = c.grados;
@@ -122,42 +136,47 @@ const VistaTierra = (() => {
     }
 
     // Luces de aldeas, ciudades e industria: solo se ven del lado de noche
-    const lPos = new Float32Array(MAX_LUCES * 3), lBrillo = new Float32Array(MAX_LUCES);
+    const lPos = new Float32Array(MAX_LUCES * 3), lBrillo = new Float32Array(MAX_LUCES), lTinte = new Float32Array(MAX_LUCES * 3);
     const lucesGeo = new THREE.BufferGeometry();
     lucesGeo.setAttribute("position", new THREE.BufferAttribute(lPos, 3));
     lucesGeo.setAttribute("brillo", new THREE.BufferAttribute(lBrillo, 1));
+    lucesGeo.setAttribute("tinte", new THREE.BufferAttribute(lTinte, 3));
     lucesGeo.setDrawRange(0, 0);
     const luces = new THREE.Points(lucesGeo, new THREE.ShaderMaterial({
       uniforms: { sol: { value: sol }, mapa: { value: punto }, escala: { value: pixelRatio } },
-      vertexShader: `attribute float brillo; uniform vec3 sol; uniform float escala; varying float vLuz;
+      vertexShader: `attribute float brillo; attribute vec3 tinte; uniform vec3 sol; uniform float escala; varying float vLuz; varying vec3 vTinte;
         void main() {
+          vTinte = tinte;
           vLuz = brillo * (1.0 - smoothstep(-0.15, 0.1, dot(normalize(position), normalize(sol))));
           gl_PointSize = (2.0 + 5.0 * brillo) * escala;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
-      fragmentShader: `uniform sampler2D mapa; varying float vLuz;
-        void main() { float a = texture2D(mapa, gl_PointCoord).a * vLuz; if (a < 0.01) discard; gl_FragColor = vec4(vec3(1.0, 0.78, 0.45) * a, a); }`,
+      fragmentShader: `uniform sampler2D mapa; varying float vLuz; varying vec3 vTinte;
+        void main() { float a = texture2D(mapa, gl_PointCoord).a * vLuz; if (a < 0.01) discard; gl_FragColor = vec4(vTinte * a, a); }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
     }));
     luces.frustumCulled = false;
     scene.add(luces);
     function encenderLuces() {
-      const c = partida.motor().celdas, G = c.grados;
+      const c = partida.motor().celdas, G = c.grados, pb = partida.motor().pueblo();
       let k = 0;
       for (const i of c.tierra) {
         const e = c.etapa[i];
         if (e < 2) continue;
+        const col = pb !== null && pb.mayoria(i) ? CELESTE : LUZ;
         const brillo = Math.min(1, Math.max(0.15, (Math.log10(c.poblacion[i]) - 3) / 5));
         const puntos = e === 2 ? 1 : e === 3 ? 3 : 5;
         for (let p = 0; p < puntos && k < MAX_LUCES; p++, k++) {
           const [hu, hv] = hash(i * 7 + p);
           escribirPunto(lPos, k, c.lat[i] + (hv - 0.5) * G * 0.8, c.lon[i] + (hu - 0.5) * G * 0.8, R * 1.002);
           lBrillo[k] = brillo * (p === 0 ? 1 : 0.6);
+          lTinte[k * 3] = col[0]; lTinte[k * 3 + 1] = col[1]; lTinte[k * 3 + 2] = col[2];
         }
       }
       lucesGeo.setDrawRange(0, k);
       lucesGeo.attributes.position.needsUpdate = true;
       lucesGeo.attributes.brillo.needsUpdate = true;
+      lucesGeo.attributes.tinte.needsUpdate = true;
     }
 
     function pintarCapas() {
@@ -203,8 +222,17 @@ const VistaTierra = (() => {
     }
 
     pintarCapas(); repartirBandas(); encenderLuces();
+    // La celda con más tuyos (null en modo Historia o si no queda ninguno)
+    function centroPueblo() {
+      const m = partida.motor(), pb = m.pueblo();
+      if (pb === null) return null;
+      const c = m.celdas, tu = pb.tuyos;
+      let mejor = -1, max = 0;
+      for (const i of c.tierra) if (tu[i] > max) { max = tu[i]; mejor = i; }
+      return mejor < 0 ? null : { lat: c.lat[mejor], lon: c.lon[mejor] };
+    }
     return {
-      scene, objs, update, setCapa, oclusor: globo,
+      scene, objs, update, setCapa, centroPueblo, oclusor: globo,
       minD: R * 1.15, maxD: R * 6, near: R * 2.6, radio: R * 1.6,
       tgt: new THREE.Vector3(), anchor: new THREE.Vector3(),
       over: () => new THREE.Vector3(0, R * 0.9, R * 2.8).multiplyScalar(aspectK())

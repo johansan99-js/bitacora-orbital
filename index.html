@@ -178,7 +178,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 10;
 }
 .modal-in {
-  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; width: min(620px, 100%);
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; box-sizing: border-box; width: min(670px, 100%);   /* 620 + relleno y borde */
   max-height: 100%; overflow-y: auto; padding: 24px; display: grid; gap: 18px; position: relative;
 }
 .modal h2 { margin: 0; font-family: var(--f-display); font-size: 18px; letter-spacing: 0.12em; text-transform: uppercase; padding-right: 40px; }
@@ -301,6 +301,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
   background: var(--panel-solid); border: 1px solid var(--star); border-radius: 16px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   max-height: calc(100dvh - 190px); overflow-y: auto;
 }
+.t-card { max-height: calc(100dvh - 100px - env(safe-area-inset-top, 0px)); overflow-y: auto; }
 .t-hito h2 { margin: 0; font-size: 18px; line-height: 1.3; }
 .t-hito p { margin: 0; color: #c4cbe0; font-size: 14px; }
 .t-hito .t-fuente { font-size: 12px; color: var(--muted); }
@@ -315,10 +316,34 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
 .t-lista b { font-size: 15px; }
 .t-lista .t-comp { font-family: var(--f-mono); font-size: 12.5px; color: #c4cbe0; }
 .t-lista .no { color: var(--muted); }
+.t-card .t-row-pueblo span, .t-card .t-row-pueblo strong { color: #7fd8ff; }
+.t-card .t-row-herencia strong { color: var(--ink); }
+.t-rasgos li.si { border-color: #7fd8ff; color: #7fd8ff; }
+#t-ver-pueblo { justify-self: start; font-size: 12px; padding: 5px 11px; }
+.t-hito .t-dec-año { font-family: var(--f-mono); color: var(--star); font-size: 13.5px; }
+.t-dec-opciones { display: grid; gap: 10px; }
+.t-opcion { display: grid; gap: 3px; justify-items: start; }
+.t-opcion span { font-size: 12.5px; color: var(--muted); }
+.t-dec-real { display: grid; gap: 8px; }
+.t-dec-real h3 { margin: 0; font-family: var(--f-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ice); }
+.t-hito .t-dec-eleccion { color: var(--ink); }
+.t-lista p { margin: 0; font-size: 13.5px; color: #c4cbe0; }
+.t-lista .t-fuente { font-size: 12px; color: var(--muted); }
+#bitacora-pueblo li:first-child { border-top: 0; }
+#bitacora-pueblo:not([hidden]) + #bitacora-lista { border-top: 1px solid var(--line); }
+#t-modo-origenes h3 { margin: 0; font-size: 16px; }
 .zoom { top: min(max(50%, 390px), calc(100dvh - 140px)); }   /* en pantallas bajas la tarjeta no tapa la escalera de escalas; en celular la regla móvil la reemplaza */
 @media (min-width: 761px) and (max-height: 520px) { .t-card { left: calc(210px + env(safe-area-inset-left, 0px)); } }   /* ventanas anchas y bajas: la tarjeta al lado de la escalera */
+/* Con tu pueblo la tarjeta es más alta: la escalera baja un poco más y, si no cabe, la tarjeta va a su lado */
+/* (la escalera mide ~260 px: su centro queda al menos 212 px sobre el borde de abajo para no tapar el muelle, y a 190 px del de arriba) */
+@media (min-width: 761px) { body.t-con-pueblo .zoom { top: max(190px, min(max(50%, 530px), calc(100dvh - 212px))); } }
+/* Ventanas muy bajas (un celular acostado): la escalera sin subtítulos, como en el celular, cabe entre el título y el reloj */
+@media (min-width: 761px) and (max-height: 420px) { .zoom button small { display: none; } }
+@media (min-width: 761px) and (max-height: 759px) {
+  body.t-con-pueblo .t-card { left: calc(210px + env(safe-area-inset-left, 0px)); max-height: calc(100dvh - 225px - env(safe-area-inset-bottom, 0px)); }   /* sin tapar el muelle ni el reloj */
+}
 @media (max-width: 760px) {
-  .t-card { left: auto; right: 16px; top: calc(124px + env(safe-area-inset-top, 0px)); width: 190px; padding: 10px 12px; font-size: 11.5px; }
+  .t-card { left: auto; right: 16px; top: calc(124px + env(safe-area-inset-top, 0px)); width: 190px; padding: 10px 12px; font-size: 11.5px; max-height: calc(100dvh - 210px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
   .t-hito { bottom: calc(132px + env(safe-area-inset-bottom, 0px)); padding: 14px 16px; }
   .clock .icon-btn { flex: none; }
 }
@@ -459,6 +484,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
     <div class="t-row"><span>Real</span><strong id="t-real"></strong></div>
     <p class="t-nota" id="t-nota" hidden>Antes de 10.000 a. C. la cifra real es una estimación muy incierta.</p>
     <ul class="t-cont" id="t-cont" aria-label="Continentes alcanzados"></ul>
+    <div class="t-row t-row-pueblo" id="t-row-pueblo" hidden><span>Tu pueblo</span><strong id="t-pueblo"></strong></div>
+    <div class="t-row t-row-herencia" id="t-row-herencia" hidden><span>Tu herencia</span><strong id="t-herencia"></strong></div>
+    <ul class="t-cont t-rasgos" id="t-rasgos" aria-label="Rasgos de tu pueblo" hidden></ul>
+    <button class="chip" id="t-ver-pueblo" type="button" hidden>Ver tu pueblo</button>
   </section>
 
   <section class="t-hito" id="t-hito" hidden role="dialog" aria-labelledby="t-hito-titulo" aria-describedby="t-hito-fechas t-hito-texto t-hito-fuente">
@@ -473,6 +502,21 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
     <div class="q-foot">
       <button class="chip" id="t-hito-ir" type="button">Ver en el globo</button>
       <button class="chip primary" id="t-hito-seguir" type="button">Seguir</button>
+    </div>
+  </section>
+
+  <section class="t-hito t-decision" id="t-decision" hidden role="dialog" aria-labelledby="t-dec-titulo" aria-describedby="t-dec-año t-dec-texto">
+    <span class="kind" id="t-dec-kind">Decisión</span>
+    <h2 id="t-dec-titulo"></h2>
+    <p class="t-dec-año" id="t-dec-año"></p>
+    <p id="t-dec-texto"></p>
+    <div class="t-dec-opciones" id="t-dec-opciones" role="group" aria-label="Opciones"></div>
+    <div class="t-dec-real" id="t-dec-real" hidden aria-live="polite">
+      <p class="t-dec-eleccion" id="t-dec-eleccion"></p>
+      <h3 id="t-dec-real-titulo">En la realidad</h3>
+      <p id="t-dec-real-texto"></p>
+      <p class="t-fuente" id="t-dec-fuente"></p>
+      <div class="q-foot"><button class="chip" id="t-dec-bitacora" type="button" hidden>Ver la Bitácora</button><button class="chip primary" id="t-dec-seguir" type="button">Seguir</button></div>
     </div>
   </section>
 
@@ -505,7 +549,26 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--star); outl
         <svg viewBox="0 0 16 16"><path d="M3.3 2.3 8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9l-4.7 4.7-1-1L7 8 2.3 3.3z"/></svg>
       </button>
       <p class="modal-intro" id="bitacora-intro"></p>
-      <ol class="t-lista" id="bitacora-lista"></ol>
+      <ol class="t-lista" id="bitacora-pueblo" hidden aria-label="Tus decisiones"></ol>
+      <ol class="t-lista" id="bitacora-lista" aria-label="Hitos de la humanidad"></ol>
+    </div>
+  </div>
+
+  <div class="modal" id="t-modo" hidden role="dialog" aria-modal="true" aria-labelledby="t-modo-title">
+    <div class="modal-in">
+      <h2 id="t-modo-title">Partida nueva</h2>
+      <button class="icon-btn sheet-close" data-close="t-modo" aria-label="Cerrar sin empezar una partida nueva">
+        <svg viewBox="0 0 16 16"><path d="M3.3 2.3 8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9l-4.7 4.7-1-1L7 8 2.3 3.3z"/></svg>
+      </button>
+      <p class="modal-intro">¿Cómo quieres jugar? La humanidad nace en África hace 300.000 años.</p>
+      <div class="levels">
+        <button class="level" id="t-modo-historia" type="button"><b>Historia</b><span>Mira cómo toda la humanidad se extiende por el planeta y compara sus fechas con las reales.</span></button>
+        <button class="level" id="t-modo-pueblo" type="button" aria-expanded="false" aria-controls="t-modo-origenes"><b>Tu pueblo</b><span>Guía a un grupo humano: decide en los momentos difíciles y compara lo que le pasó con lo que pasó en la realidad.</span></button>
+      </div>
+      <div class="levels" id="t-modo-origenes" hidden role="group" aria-labelledby="t-modo-origenes-titulo" aria-describedby="t-modo-origenes-texto">
+        <h3 id="t-modo-origenes-titulo"></h3>
+        <p class="modal-intro" id="t-modo-origenes-texto"></p>
+      </div>
     </div>
   </div>
 
@@ -1259,6 +1322,8 @@ const Tex = (() => {
 <script src="poblacion/mundo.js"></script>
 <script src="poblacion/datos.js"></script>
 <script src="poblacion/motor.js"></script>
+<script src="poblacion/pueblo-datos.js"></script>
+<script src="poblacion/pueblo.js"></script>
 <script src="poblacion/partida.js"></script>
 <script src="poblacion/vista.js"></script>
 <script src="poblacion/panel.js"></script>
@@ -1932,7 +1997,8 @@ const Space = (() => {
     today() { simDays = daysNow(); },
     date() { return new Date(J2000 + simDays * 86400000); },
     setInset(x, y) { inset = { x, y }; applyOffset(); },
-    tierra: { partida: partidaTierra, get fallo() { return !!LV.tierra.fallo; }, setCapa(n, on) { if (LV.tierra.setCapa) LV.tierra.setCapa(n, on); } },
+    tierra: { partida: partidaTierra, get fallo() { return !!LV.tierra.fallo; }, setCapa(n, on) { if (LV.tierra.setCapa) LV.tierra.setCapa(n, on); },
+      centroPueblo() { return LV.tierra.centroPueblo ? LV.tierra.centroPueblo() : null; } },
     // Vuela sobre un punto del globo (vector unitario desde el centro de la Tierra)
     apuntar(n, dist = 24) {
       if (lvl !== "tierra") return;
@@ -2100,7 +2166,7 @@ const Space = (() => {
     openSheet(false); markDock(null);
     if (Space.level() === id) Space.overview(); else Space.setLevel(id);
   }
-  let panel = null;
+  let panel = null, modoElegido = false;
   Space.onLevel = lv => {
     zoom.querySelectorAll("button").forEach(b => b.setAttribute("aria-current", String(b.dataset.lv === lv)));
     buildDock(lv);
@@ -2113,6 +2179,8 @@ const Space = (() => {
     document.querySelectorAll(".opt-solar").forEach(b => { b.hidden = !solar; });
     document.querySelectorAll(".opt-tierra").forEach(b => { b.hidden = !tierra; });
     if (panel) panel.mostrar(tierra);
+    // La primera vez que se entra a "La Tierra" se elige el modo, con la partida en pausa
+    if (tierra && panel && !modoElegido) { modoElegido = true; partida.setReproduciendo(false); panel.elegirModo(); }
     syncClock();
   };
   // Menú de capas
@@ -2140,7 +2208,8 @@ const Space = (() => {
   const velocidad = { solar: 2, tierra: 2 };
   let playing = true;
   function showPlaying(p) {
-    $("ico-pause").hidden = !p; $("ico-play").hidden = p;
+    // Son SVG: no tienen la propiedad `hidden`, así que se usa el atributo
+    $("ico-pause").toggleAttribute("hidden", !p); $("ico-play").toggleAttribute("hidden", p);
     $("btn-play").setAttribute("aria-label", p ? "Pausar el tiempo" : "Reanudar el tiempo");
   }
   function tickDate() {
@@ -2163,14 +2232,16 @@ const Space = (() => {
   speed.addEventListener("input", setSpeed);
   $("btn-play").addEventListener("click", () => {
     if (enTierra()) {
-      if (panel && panel.avisoAbierto()) return panel.seguir();   // con un aviso abierto, reproducir equivale a "Seguir"
+      // Con un aviso abierto, reproducir equivale a "Seguir" (una decisión sin elegir no se cierra ni reanuda)
+      if (panel && (panel.decisionAbierta() || panel.avisoAbierto())) return panel.seguir();
       return showPlaying(partida.setReproduciendo(!partida.reproduciendo()));
     }
     playing = !playing; Space.setPlaying(playing); showPlaying(playing);
   });
   dateOut.addEventListener("click", () => {
     if (!enTierra()) return Space.today();
-    if (confirm("¿Empezar una partida nueva? La humanidad volverá a nacer en África hace 300.000 años.")) partida.nueva();
+    if (panel) panel.elegirModo();
+    else if (confirm("¿Empezar una partida nueva? La humanidad volverá a nacer en África hace 300.000 años.")) partida.nueva();
   });
   if (partida) partida.alEvento(e => {
     if (!enTierra()) return;
@@ -2302,7 +2373,8 @@ const Space = (() => {
 
   // La Tierra habitada: tarjeta, avisos de hitos y Bitácora
   if (partida && typeof PanelTierra !== "undefined") {
-    try { panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal }); }
+    try { panel = PanelTierra.iniciar({ partida, historia: HISTORIA, normal: VistaTierra.normal, irA: n => Space.apuntar(n), abrirModal: openModal,
+      centroPueblo: () => Space.tierra.centroPueblo() }); }
     catch (e) { console.error("El panel de La Tierra no está disponible:", e); panel = null; }
   }
   Space.onLevel("solar");
