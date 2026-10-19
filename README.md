@@ -21,9 +21,11 @@ Las texturas se cargan como archivos aparte, así que la página necesita un ser
 python3 -m http.server 8000
 ```
 
-y abre <http://localhost:8000>. Necesita internet para cargar three.js y las fuentes.
+y abre <http://localhost:8000>. three.js viene en `vendor/`; solo las fuentes se cargan de internet (sin conexión se usan las del sistema).
 
-Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/` y `poblacion/`. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez.
+Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pages.yml`): cada push a `main` sube `index.html`, `tex/`, `renders/`, `poblacion/` y `vendor/`, y cambia el `?v=dev` de los `<script>` por el commit publicado, para que nadie mezcle un `index.html` nuevo con un script viejo de la caché. En local `?v=dev` no hace nada. Solo hay que elegir *Settings → Pages → Source: GitHub Actions* una vez. Antes de publicar corre las pruebas (`.github/workflows/pruebas.yml`, las mismas que en cada PR); si alguna falla, no se publica.
+
+Para que nada llegue a `main` sin pasar las pruebas, el dueño del repositorio lo protege una vez, a mano: *Settings → Branches → Add branch protection rule* (o *Rules → Rulesets*) para `main`, con *Require a pull request before merging* y *Require status checks to pass*, eligiendo el check **`pruebas`** (aparece en la lista después de que el workflow haya corrido al menos una vez en un PR).
 
 ## Estructura
 
@@ -32,6 +34,7 @@ Se publica gratis en **GitHub Pages** con GitHub Actions (`.github/workflows/pag
 | `index.html` | Toda la app: estilos, datos (planetas, lunas, estrellas, galaxias, cuestionario, misiones) y la escena 3D con three.js r128 |
 | `tex/` | Texturas de los planetas, optimizadas para la web |
 | `renders/` | Retratos de cada astro (WebP), hechos con Blender |
+| `vendor/` | three.js r128 (`three.min.js`) y su `OrbitControls.js`, copiados sin cambios de los CDN que usaba la página, con su licencia MIT (`LICENSE-three.txt`). SHA-256: `9274bbce…c1ce2` y `02bb4ade…5e7b2` |
 | `poblacion/` | La Tierra habitada: mapa en celdas (`mundo.js`, generado), datos reales con fuentes (`datos.js`), motor de la simulación, reloj de la partida, vista 3D y panel |
 | `herramientas/generar_mundo.py` | Genera `poblacion/mundo.js` a partir de las texturas de la Tierra |
 | `pruebas/` | Pruebas del motor y la partida, y la calibración contra la historia real |
@@ -59,13 +62,16 @@ Salen en PNG de 720 × 720 con fondo transparente (unos 20 segundos por astro en
 El motor (`poblacion/motor.js`) no usa el navegador, así que se prueba con Node 24:
 
 ```bash
-node --test "pruebas/*.test.mjs"
+node --test "pruebas/*.test.mjs"     # o npm test; npm run test:rapido salta las huellas largas
 ```
 
-La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana o si menos del 80 % de las partidas llega a la industria):
+Las huellas (`motor-historia.test.mjs`, `pueblo-huella.test.mjs`) comprueban que una partida con semilla fija da exactamente lo mismo que antes, bit a bit (población, innovaciones, saber y arcaicos de cada celda; en Historia también los hitos con su año y la población total). Si una cambia sin querer, algo cambió la simulación.
+
+La calibración corre 30 partidas completas y compara sus hitos con la historia real (sale con error si alguna mediana cae fuera de su ventana o si menos del 80 % de las partidas llega a la industria). `--sin-tiempo` quita el criterio de tiempo por partida, que depende de la máquina; `--comparar` además exige que el informe sea idéntico a `pruebas/referencias/calibrar.txt` (lo hace cada noche `.github/workflows/nocturnas.yml`, junto con `jugar.mjs 8` como informativa). Si Historia cambia a propósito, la referencia se regenera con `node pruebas/calibrar.mjs --sin-tiempo > pruebas/referencias/calibrar.txt`, con las 30 semillas por defecto (sin pasar otro número). Ejecútalo desde Git Bash (o `cmd /c "node pruebas/calibrar.mjs --sin-tiempo > pruebas/referencias/calibrar.txt"`): en Windows PowerShell 5.1, `>` escribe UTF-16 y la comparación falla.
 
 ```bash
 node pruebas/calibrar.mjs
+node pruebas/calibrar.mjs --comparar
 ```
 
 La prueba de juego recorre partidas completas de **Tu pueblo** con tres jugadores automáticos (siempre la primera opción, siempre la segunda y al azar) y sale con error si no se cumple alguno de estos criterios: entre 8 y 14 decisiones por partida (contando el Nacimiento), el jugador al azar vivo en 2026 en el 30–85 % de las partidas, decisiones que importan (medido por semilla, el pueblo final de la política que más tiene sobre la que menos tiene mediana ≥ 1,5, o la fracción de partidas vivas difiere en 20 puntos o más) y tiempo por partida de a lo sumo 1,15 veces el del modo Historia (la mejor de 3 rondas pareadas):

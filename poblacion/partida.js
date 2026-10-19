@@ -16,7 +16,17 @@ const Partida = (() => {
     const presupuestoMs = opciones.presupuestoMs ?? 3;
     const reloj = opciones.reloj ?? (() => performance.now());
     const oyentes = [];
-    const emitir = e => oyentes.forEach(fn => fn(e));
+    // Cada oyente (la interfaz) va aislado: si uno lanza, el error queda en la consola y los demás reciben el evento igual
+    const emitir = e => {
+      for (const fn of oyentes.slice()) {
+        try { fn(e); } catch (err) { console.error(`Un oyente del evento "${e.tipo}" de la partida falló:`, err); }
+      }
+    };
+    // Durante un paso, los avisos del motor y del pueblo esperan a que el paso termine: así ningún oyente ve (ni corta)
+    // un estado a medias. Salen en el mismo orden en que ocurrieron.
+    let enPaso = false, porEmitir = [];
+    const avisar = e => { if (enPaso) porEmitir.push(e); else emitir(e); };
+    function soltar() { const lista = porEmitir; porEmitir = []; lista.forEach(emitir); }
     let motor, pueblo = null, modoActual = "historia", jugando = true, mult = 2, cola = [], debe = 0;
 
     function nueva(semilla, { modo = "historia", origen } = {}) {
@@ -29,13 +39,13 @@ const Partida = (() => {
         pueblo.alEvento(e => {
           if (e.tipo !== "estado") return;
           if (opciones.pausarEnHitos !== false) jugando = false;
-          emitir({ tipo: "pueblo", estado: e.estado });
+          avisar({ tipo: "pueblo", estado: e.estado });
         });
       }
       motor.alHito(h => {
         cola.push(h);
         if (opciones.pausarEnHitos !== false) jugando = false;
-        emitir({ tipo: "hito", hito: h });
+        avisar({ tipo: "hito", hito: h });
       });
       emitir({ tipo: "nueva" });
     }
@@ -45,6 +55,11 @@ const Partida = (() => {
     // cuadros por segundo ni de la velocidad: los años pedidos se acumulan en `debe` y el resto queda para el cuadro siguiente.
     function paso(dt) {
       if (!jugando || motor.terminado() || !(dt > 0)) return 0;
+      enPaso = true;
+      try { return avanzarCuadro(dt); }
+      finally { enPaso = false; soltar(); }
+    }
+    function avanzarCuadro(dt) {
       const pedido = dt * añosPorSegundo();
       debe = Math.min(debe + pedido, Math.max(pedido, 10 * motor.pasoMax()));   // sin atraso infinito si la máquina no da abasto
       const t0 = reloj();
@@ -58,12 +73,12 @@ const Partida = (() => {
         hecho += d;
         if (pueblo) {
           const dec = pueblo.revisar();
-          if (dec) { jugando = false; emitir({ tipo: "decision", decision: dec }); }
+          if (dec) { jugando = false; avisar({ tipo: "decision", decision: dec }); }
         }
         if (reloj() - t0 >= presupuestoMs) break;
       }
       if (!jugando) debe = 0;   // tras una pausa por hito no se arrastra el resto
-      if (motor.terminado()) { jugando = false; debe = 0; emitir({ tipo: "fin" }); }
+      if (motor.terminado()) { jugando = false; debe = 0; avisar({ tipo: "fin" }); }
       return hecho;
     }
 

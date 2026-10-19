@@ -194,3 +194,63 @@ test("el modo historia sigue igual", () => {
   assert.ok(!eventos.includes("decision") && !eventos.includes("pueblo"));
   assert.throws(() => p.elegir("x"));
 });
+
+// Los oyentes son la interfaz: corren después del paso del motor y uno que falla no toca la simulación
+test("un oyente que lanza no cambia la huella", t => {
+  const errores = t.mock.method(console, "error", () => {});
+  const jugar = conOyenteRoto => {
+    const p = pPueblo({ catalogo: catalogo(["frontera", "encuentro", "frio", "sequia"]) });
+    if (conOyenteRoto) p.alEvento(() => { throw new Error("la interfaz falló"); });
+    const tipos = [];
+    p.alEvento(e => tipos.push(e.tipo));   // un oyente posterior al roto sigue recibiendo todo
+    for (let k = 0; k < 200 && !p.terminada(); k++) {
+      const d = p.decisionPendiente();
+      if (d) p.elegir(d.opciones[0].id);
+      while (p.tomarHito());
+      p.setReproduciendo(true);
+      p.paso(0.5);
+    }
+    return { p, tipos };
+  };
+  const sano = jugar(false), roto = jugar(true);
+  assert.ok(sano.p.pueblo().registro().length > 1 && sano.p.motor().hitos().length > 0 && sano.tipos.includes("decision"));
+  assert.equal(huella(roto.p.motor()), huella(sano.p.motor()));
+  assert.deepEqual(roto.p.motor().hitos(), sano.p.motor().hitos());
+  assert.deepEqual(roto.p.pueblo().registro(), sano.p.pueblo().registro());
+  assert.deepEqual(roto.tipos, sano.tipos);
+  assert.equal(errores.mock.callCount(), roto.tipos.length);   // cada fallo queda en la consola, una vez
+});
+
+test("los eventos llegan después del paso: hito antes que decisión, con la partida ya en pausa", () => {
+  const p = pPueblo();   // la salida de África y la frontera del desierto llegan en el primer paso
+  const vistos = [];
+  p.alEvento(e => vistos.push({ tipo: e.tipo, año: p.motor().año(), jugando: p.reproduciendo(), pendientes: p.pendientes().length,
+    decision: p.decisionPendiente() && p.decisionPendiente().id }));
+  p.paso(1);
+  const año = p.motor().año();
+  assert.deepEqual(vistos.map(v => v.tipo), ["hito", "decision"]);
+  // Cada oyente ve el estado del final del paso, no uno a medias
+  for (const v of vistos) {
+    assert.equal(v.año, año);
+    assert.equal(v.jugando, false);
+    assert.equal(v.pendientes, 1);
+    assert.equal(v.decision, "frontera");
+  }
+  assert.equal(p.paso(1), 0);
+  assert.equal(vistos.length, 2);
+});
+
+test("un oyente que lanza en un hito no deja la partida a medias ni corta a los demás", t => {
+  t.mock.method(console, "error", () => {});
+  const p = Partida.crear(isla(), conGente(), { params: QUIETO, presupuestoMs: Infinity });
+  const q = Partida.crear(isla(), conGente(), { params: QUIETO, presupuestoMs: Infinity });
+  let llegaron = 0;
+  p.alEvento(e => { if (e.tipo === "hito") throw new Error("la interfaz falló"); });
+  p.alEvento(() => { llegaron++; });
+  assert.doesNotThrow(() => p.paso(1));
+  q.paso(1);
+  assert.equal(llegaron, p.pendientes().length);
+  assert.equal(p.motor().año(), q.motor().año());
+  assert.equal(huella(p.motor()), huella(q.motor()));
+  assert.equal(p.reproduciendo(), false);
+});

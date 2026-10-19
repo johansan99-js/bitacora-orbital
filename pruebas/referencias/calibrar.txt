@@ -1,0 +1,15 @@
+  hito                p10            mediana        p90            ventana de la mediana
+✓ salida_africa      hace 76 mil    hace 75 mil    hace 71 mil    hace 130 mil … hace 45 mil
+✓ sahul              hace 55 mil    hace 49 mil    hace 37 mil    hace 80 mil … hace 35 mil
+✓ europa             hace 57 mil    hace 55 mil    hace 53 mil    hace 60 mil … hace 30 mil
+✓ norteamerica       hace 29 mil    hace 28 mil    hace 26 mil    hace 30 mil … 9974 a. C.
+✓ agricultura        9660 a. C.     9660 a. C.     9660 a. C.     hace 13 mil … 5974 a. C.
+✓ primera_ciudad     4460 a. C.     4200 a. C.     4040 a. C.     5974 a. C. … 1974 a. C.
+✓ industria          1632           1772           1915           1500 … 1900
+✓ mil_millones       1724           1862           1997           1500 … 1950
+· neandertales       hace 35 mil    hace 34 mil    hace 32 mil    (solo para comparar)
+· polinesia          6660 a. C.     4480 a. C.     2600 a. C.     (solo para comparar)
+· nueva_zelanda      6840 a. C.     5740 a. C.     4800 a. C.     (solo para comparar)
+✓ población en 2026: mediana 9.09 mil millones (ventana 3–15)
+✓ llegan a todos los continentes habitados: 30/30 partidas (mínimo 80 %)
+✓ llegan a la industria: 30/30 partidas (mínimo 80 %)
